@@ -457,7 +457,7 @@ begin
   AutoSelect := False;
   ForceSelection := True;
   Mode := 'local';
-  LDBQuery := Session.Config.MainDBConnection.CreateDBQuery;
+  LDBQuery := Session.Config.DefaultDBConnection.CreateDBQuery;
   try
     LDBQuery.CommandText := FConfig.GetExpandedString('CommandText');
     LDBQuery.Open;
@@ -531,7 +531,7 @@ end;
 function TKFreeSearchFilter.GetExpression: string;
 begin
   if FCurrentValue <> '' then
-    Result := ReplaceText(FConfig.GetExpandedString('ExpressionTemplate'), '{value}', FCurrentValue)
+    Result := ReplaceText(FConfig.GetExpandedString('ExpressionTemplate'), '{value}', ReplaceStr(FCurrentValue, '''', ''''''))
   else
     Result := '';
 end;

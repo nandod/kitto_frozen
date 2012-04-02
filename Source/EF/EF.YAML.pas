@@ -33,6 +33,7 @@ type
   ///	</summary>
   TEFYAMLParser = class
   private
+    FLastAnnotations: TStrings;
     FIndents: TList<Integer>;
     FPrevIndent: Integer;
     FLastValueType: TEFYAMLValueType;
@@ -64,6 +65,10 @@ type
     ///	  Reports the indent increment of the last parsed line.
     ///	</summary>
     property LastIndentIncrement: Integer read FLastIndentIncrement;
+
+    ///	<summary>Contains all the annotations read since last reset. The caller
+    ///	is responsible for resetting this list at appropriate times.</summary>
+    property LastAnnotations: TStrings read FLastAnnotations;
   end;
 
   ///	<summary>
@@ -85,6 +90,8 @@ type
     class property FormatSettings: TFormatSettings read FFormatSettings write FFormatSettings;
     procedure LoadTreeFromFile(const ATree: TEFTree; const AFileName: string);
     procedure LoadTreeFromStream(const ATree: TEFTree; const AStream: TStream);
+
+    class function LoadTree(const AFileName: string): TEFTree;
   end;
 
   ///	<summary>
@@ -94,7 +101,6 @@ type
   private
     FIndentChars: Integer;
     FSpacingChars: Integer;
-    FQuote: string;
     procedure WriteNode(const ANode: TEFNode; const AWriter: TTextWriter;
       const AIndent: Integer);
   public
@@ -104,10 +110,18 @@ type
     procedure SaveTreeToStream(const ATree: TEFTree; const AStream: TStream);
   end;
 
+function EncodeYAMLKey(const AKey: string): string;
+
 implementation
 
 uses
-  EF.Types, EF.StrUtils;
+  StrUtils,
+  EF.Types, EF.StrUtils, EF.Localization;
+
+function EncodeYAMLKey(const AKey: string): string;
+begin
+  Result := ReplaceStr(AKey, ':', '§');
+end;
 
 { TEFYAMLParser }
 
@@ -115,12 +129,14 @@ procedure TEFYAMLParser.AfterConstruction;
 begin
   inherited;
   FIndents := TList<Integer>.Create;
+  FLastAnnotations := TStringList.Create;
   Reset;
 end;
 
 destructor TEFYAMLParser.Destroy;
 begin
   FreeAndNil(FIndents);
+  FreeAndNil(FLastAnnotations);
   inherited;
 end;
 
@@ -178,9 +194,12 @@ begin
     raise EEFError.CreateFmt('YAML syntax error. Tab character (#9) not allowed. Use spaces only for indentation. Line: %s', [ALine]);
 
   LLine := Trim(ALine);
-  // Skip comments.
+  // Store comments and empty lines as annotations for the next node.
   if (LLine = '') or (LLine[1] = '#') then
+  begin
+    FLastAnnotations.Add(LLine);
     Exit;
+  end;
 
   P := Pos(':', ALine);
   if P = 0 then
@@ -238,6 +257,24 @@ begin
   Result := FParser;
 end;
 
+class function TEFYAMLReader.LoadTree(const AFileName: string): TEFTree;
+var
+  LInstance: TEFYAMLReader;
+begin
+  LInstance := TEFYAMLReader.Create;
+  try
+    Result := TEFTree.Create;
+    try
+      LInstance.LoadTreeFromFile(Result, AFileName);
+    except
+      FreeAndNil(Result);
+      raise;
+    end;
+  finally
+    FreeAndNil(LInstance);
+  end;
+end;
+
 procedure TEFYAMLReader.LoadTreeFromFile(const ATree: TEFTree; const AFileName: string);
 var
   LFileStream: TFileStream;
@@ -246,7 +283,13 @@ begin
 
   LFileStream := TFileStream.Create(AFileName, fmOpenRead + fmShareDenyWrite);
   try
-    LoadTreeFromStream(ATree, LFileStream);
+    try
+      LoadTreeFromStream(ATree, LFileStream);
+    except
+      on E: Exception do
+        raise Exception.CreateFmt(_('Error %s while loading file %s.'),
+          [E.Message, AFileName]);
+    end;
   finally
     FreeAndNil(LFileStream);
   end;
@@ -260,6 +303,7 @@ var
   LTop: TEFTree;
   LReader: TStreamReader;
   LCurrentValue: string;
+  LNewNode: TEFNode;
 
   procedure TryPopFromStack(const AAmount: Integer);
   var
@@ -291,7 +335,14 @@ begin
           else
             LTop := LStack.Peek;
           case Parser.LastValueType of
-            vtSingleLine: LStack.Push(LTop.AddChild(LName).SetAsYamlValue(LRawValue, FFormatSettings));
+            vtSingleLine:
+            begin
+              LNewNode := LTop.AddChild(LName).SetAsYamlValue(LRawValue, FFormatSettings);
+              LNewNode.AssignAnnotations(Parser.LastAnnotations);
+              LNewNode.ValueAttributes := '';
+              Parser.LastAnnotations.Clear;
+              LStack.Push(LNewNode);
+            end;
             vtMultiLineWithNL:
             begin
               LCurrentValue := (LTop as TEFNode).AsString;
@@ -300,6 +351,7 @@ begin
               else
                 LCurrentValue := LCurrentValue + sLineBreak + LRawValue;
               (LTop as TEFNode).AsString := LCurrentValue;
+              (LTop as TEFNode).ValueAttributes := '|';
             end;
             vtMultiLineWithSpace:
             begin
@@ -312,6 +364,7 @@ begin
               else
                 LCurrentValue := LCurrentValue + ' ' + LRawValue;
               (LTop as TEFNode).AsString := LCurrentValue;
+              (LTop as TEFNode).ValueAttributes := '>';
             end;
           end;
         end;
@@ -331,7 +384,6 @@ begin
   inherited;
   FIndentChars := 2;
   FSpacingChars := 1;
-  FQuote := '';
 end;
 
 procedure TEFYAMLWriter.SaveTreeToFile(const ATree: TEFTree; const AFileName: string);
@@ -359,6 +411,7 @@ begin
   LIndent := 0;
   LWriter := TStreamWriter.Create(AStream, TEncoding.UTF8);
   try
+    ATree.BeforeSave;
     for I := 0 to ATree.ChildCount - 1 do
       WriteNode(ATree.Children[I], LWriter, LIndent);
     LWriter.Flush;
@@ -371,12 +424,51 @@ procedure TEFYAMLWriter.WriteNode(const ANode: TEFNode;
   const AWriter: TTextWriter; const AIndent: Integer);
 var
   I: Integer;
+  LValue: string;
+  LStrings: TStringList;
 begin
+  Assert(Assigned(ANode));
+
+  for I := 0 to ANode.AnnotationCount - 1 do
+  begin
+    LValue := ANode.Annotations[I];
+    if LValue = '' then
+      AWriter.WriteLine
+    else
+      AWriter.WriteLine(StringOfChar(' ', AIndent) + LValue);
+  end;
+
   AWriter.Write(StringOfChar(' ', AIndent) + ANode.Name + ':');
   { TODO : format value }
-  if ANode.AsString <> '' then
-    AWriter.Write(StringOfChar(' ', FSpacingChars) + FQuote + ANode.AsString + FQuote);
-  AWriter.WriteLine;
+  LValue := ANode.AsString;
+
+  if LValue <> '' then
+  begin
+    if ANode.IsMultiLineValue then
+    begin
+      LStrings := TStringList.Create;
+      try
+        if ANode.IsMultiLineWithNLValue then
+        begin
+          LStrings.Text := LValue;
+          AWriter.WriteLine(StringOfChar(' ', FSpacingChars) + '|');
+        end
+        else
+        begin
+          LStrings.Text := WrapText(LValue);
+          AWriter.WriteLine(StringOfChar(' ', FSpacingChars) + '>');
+        end;
+        for I := 0 to LStrings.Count - 1 do
+          AWriter.WriteLine(StringOfChar(' ', AIndent + FIndentChars) + LStrings[I]);
+      finally
+        FreeAndNil(LStrings);
+      end;
+    end
+    else
+      AWriter.WriteLine(StringOfChar(' ', FSpacingChars) + LValue);
+  end
+  else
+    AWriter.WriteLine;
   for I := 0 to ANode.ChildCount - 1 do
     WriteNode(ANode.Children[I], AWriter, AIndent + FIndentChars);
 end;

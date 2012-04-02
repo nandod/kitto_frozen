@@ -1,5 +1,5 @@
-// Dynamically adds a style rule. Used to add icons
-// through CSS in async responses.
+// Dynamically adds a style rule. Used to dynamically
+// add icons and other CSS classes in async responses.
 function addStyleRule(rule) {
   var head = document.getElementsByTagName('head')[0],
       style = document.createElement('style'),
@@ -134,24 +134,63 @@ function formatTime(time, format)
 };
 
 // Renders an image with a value.
-// patterns is an array of arrays of two elements: image URL and regexp.
-// patterns are searched in order.
+// Patterns is an array of arrays of two/three elements: image URL and regexp
+// are mandatory, and the third element, if present, is a custom value template
+// that can include v as the '{value}' placeholder.
+// Patterns are searched in order.
 // An image is rendered if v matches its regexp. Set includeValue to false
 // to display only the image and not the value (if there's no matching image,
 // the value is always displayed).
+// Note: v is always used as the image tooltip (ext:qtip) and alt value.
 function formatWithImage(v, patterns, includeValue)
 {
-  var image = null
+  var image = null;
+  var customValue = "";
   for (var i = 0; i < patterns.length; i++)
   {
     var re = new RegExp(patterns[i][1]);
     if (re.test(v)) {
       image = patterns[i][0];
+      if (patterns[i].length >= 3)
+        customValue = patterns[i][2];
       break;
     }
   }
+  if (customValue != "")
+    v = customValue.replace('{value}', v);
   if (image != null)
-    return '<img src="' + image + '">' + (includeValue ? '&nbsp;' + v : '');
+    // TODO: center image vertically?
+    return '<img src="' + image + '" alt="' + v + '" ext:qtip="' + v + '">' + (includeValue ? '&nbsp;' + v : '');
   else
     return v;
+};
+
+// Matches value against a list of regexps.
+// Patterns is an array of arrays of two elements: result and regexp.
+// Patterns are searched in order.
+// If a match is found, the corresponding result is returned (otherwise '').
+function matchValue(value, patterns)
+{
+  var result = '';
+  for (var i = 0; i < patterns.length; i++)
+  {
+    var re = new RegExp(patterns[i][1]);
+    if (re.test(value)) {
+      result = patterns[i][0];
+      break;
+    }
+  }
+  return result;
+};
+
+function getRowColorStyleRule(record, fieldName, patterns)
+{
+  var color = matchValue(record.get(fieldName), patterns);
+  if (color != '') {
+    var ruleName = 'row-color-' + color;
+    addStyleRule('.' + ruleName + ' { background-color: #' + color + '; }');
+    return ruleName;
+  }
+  else
+    return '';
 };

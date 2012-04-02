@@ -155,7 +155,8 @@ function TextFileToString(const AFileName: string): string;
 ///	<summary>
 ///	  Writes AString to a text file.
 ///	</summary>
-procedure StringToTextFile(const AString, AFileName: string);
+procedure StringToTextFile(const AString, AFileName: string;
+  const AEncoding: TEncoding = nil);
 
 ///	<summary>
 ///	  Appends AString to an existing text file. If the file doesn't exist,
@@ -570,20 +571,21 @@ begin
   end;
 end;
 
-procedure StringToTextFile(const AString, AFileName: string);
+procedure StringToTextFile(const AString, AFileName: string;
+  const AEncoding: TEncoding = nil);
 var
-  LFile: TextFile;
   LFilePath: string;
+  LWriter: TStreamWriter;
 begin
   LFilePath := ExtractFilePath(AFileName);
   if LFilePath <> '' then
     ForceDirectories(LFilePath);
-  AssignFile(LFile, AFileName);
+
+  LWriter := TStreamWriter.Create(AFileName, False, AEncoding);
   try
-    Rewrite(LFile);
-    Write(LFile, AString);
+    LWriter.Write(AString);
   finally
-    CloseFile(LFile);
+    LWriter.Free;
   end;
 end;
 

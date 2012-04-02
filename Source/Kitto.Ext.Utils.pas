@@ -33,7 +33,6 @@ type
     procedure SetView(const AValue: TKView);
   public
     property View: TKView read FView write SetView;
-    destructor Destroy; override;
   end;
 
   TKExtButton = class(TExtButton)
@@ -42,7 +41,6 @@ type
     procedure SetView(const AValue: TKView);
   public
     property View: TKView read FView write SetView;
-    destructor Destroy; override;
   end;
 
   TKExtMenuItem = class(TExtMenuItem)
@@ -51,7 +49,6 @@ type
     procedure SetView(const AValue: TKView);
   public
     property View: TKView read FView write SetView;
-    destructor Destroy; override;
   end;
 
   ///	<summary>
@@ -100,8 +97,8 @@ function AdaptExtNumberFormat(const AFormat: string; const AFormatSettings: TFor
 implementation
 
 uses
-  StrUtils, HTTPApp, RTTI,
-  EF.SysUtils, EF.Classes, EF.Localization,
+  Types, StrUtils, HTTPApp, RTTI,
+  EF.SysUtils, EF.StrUtils, EF.Classes, EF.Localization,
   Kitto.Ext.Session, Kitto.AccessControl, Kitto.Ext.Base;
 
 function CallViewControllerStringMethod(const AView: TKView;
@@ -341,9 +338,14 @@ begin
 end;
 
 function DelphiDateTimeFormatToJSDateTimeFormat(const ADateTimeFormat: string): string;
+var
+  LFormats: TStringDynArray;
 begin
-  Result := DelphiDateFormatToJSDateFormat(ADateTimeFormat);
-  Result := DelphiTimeFormatToJSTimeFormat(Result);
+  LFormats := Split(ADateTimeFormat);
+  Assert(Length(LFormats) = 2);
+
+  Result := DelphiDateFormatToJSDateFormat(LFormats[0]) + ' ' +
+    DelphiTimeFormatToJSTimeFormat(LFormats[1]);
 end;
 
 function DelphiDateFormatToJSDateFormat(const ADateFormat: string): string;
@@ -382,13 +384,6 @@ end;
 
 { TKExtTreeTreeNode }
 
-destructor TKExtTreeTreeNode.Destroy;
-begin
-  if Assigned(FView) and not FView.IsPersistent then
-    FreeAndNil(FView);
-  inherited;
-end;
-
 procedure TKExtTreeTreeNode.SetView(const AValue: TKView);
 var
   LLabel: string;
@@ -396,7 +391,7 @@ begin
   FView := AValue;
   if Assigned(FView) then
   begin
-    LLabel := FView.DisplayLabel;
+    LLabel := _(FView.DisplayLabel);
     if LLabel = '' then
       LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
     Text := HTMLEncode(_(LLabel));
@@ -408,13 +403,6 @@ end;
 
 { TKExtButton }
 
-destructor TKExtButton.Destroy;
-begin
-  if Assigned(FView) and not FView.IsPersistent then
-    FreeAndNil(FView);
-  inherited;
-end;
-
 procedure TKExtButton.SetView(const AValue: TKView);
 var
   LLabel: string;
@@ -422,7 +410,7 @@ begin
   FView := AValue;
   if Assigned(FView) then
   begin
-    LLabel := FView.DisplayLabel;
+    LLabel := _(FView.DisplayLabel);
     if LLabel = '' then
       LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
     Text := HTMLEncode(_(LLabel));
@@ -431,13 +419,6 @@ end;
 
 { TKExtMenuItem }
 
-destructor TKExtMenuItem.Destroy;
-begin
-  if Assigned(FView) and not FView.IsPersistent then
-    FreeAndNil(FView);
-  inherited;
-end;
-
 procedure TKExtMenuItem.SetView(const AValue: TKView);
 var
   LLabel: string;
@@ -445,7 +426,7 @@ begin
   FView := AValue;
   if Assigned(FView) then
   begin
-    LLabel := FView.DisplayLabel;
+    LLabel := _(FView.DisplayLabel);
     if LLabel = '' then
       LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
     Text := HTMLEncode(_(LLabel));

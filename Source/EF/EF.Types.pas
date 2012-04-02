@@ -56,6 +56,15 @@ type
   TEFPair = TPair<string, string>;
   TEFPairs = array of TEFPair;
 
+  TEFTriple = record
+    Value1: string;
+    Value2: string;
+    Value3: string;
+    constructor Create(const AValue1, AVAlue2, AVAlue3: string);
+    procedure AssignPair({$IFDEF D15+}const {$ENDIF}APair: TEFPair);
+  end;
+  TEFTriples = array of TEFTriple;
+
   ///	<summary>
   ///	  Holds a list of registered classes and provides class references by
   ///	  string Ids.
@@ -120,6 +129,10 @@ type
     ///	  registered. Otherwise returns nil.
     ///	</summary>
     function FindClass(const AId: string): TClass;
+
+    ///	<summary>Returns a sorted array with all registered class
+    ///	Ids.</summary>
+    function GetClassIds: TArray<string>;
   end;
 
   ///	<summary>
@@ -173,6 +186,7 @@ type
 implementation
 
 uses
+  Generics.Defaults,
   EF.Localization;
 
 { EEFError }
@@ -182,6 +196,26 @@ constructor EEFError.CreateWithAdditionalInfo(const AMessage,
 begin
   inherited Create(AMessage);
   FAdditionalInfo := AAdditionalInfo;
+end;
+
+type
+  TCaseInsEqualityComparer = class(TEqualityComparer<string>)
+  public
+    function Equals(const Left, Right: string): Boolean; override;
+    function GetHashCode(const Value: string): Integer; override;
+  end;
+
+function TCaseInsEqualityComparer.Equals(const Left, Right: string): Boolean;
+begin
+  Result := SameText(Left, Right);
+end;
+
+function TCaseInsEqualityComparer.GetHashCode(const Value: string): Integer;
+var
+  LString: string;
+begin
+  LString := UpperCase(Value);
+  Result := BobJenkinsHash(LString[1], Length(LString) * SizeOf(LString[1]), 0);
 end;
 
 { TEFRegistry }
@@ -205,7 +239,7 @@ end;
 constructor TEFRegistry.Create;
 begin
   inherited Create;
-  FClasses := TDictionary<string, TClass>.Create;
+  FClasses := TDictionary<string, TClass>.Create(TCaseInsEqualityComparer.Create);
 end;
 
 destructor TEFRegistry.Destroy;
@@ -224,30 +258,49 @@ end;
 
 function TEFRegistry.GetClass(const AId: string): TClass;
 begin
-  if HasClass(UpperCase(AId)) then
-    Result := FClasses[UpperCase(AId)]
+  if HasClass(AId) then
+    Result := FClasses[AId]
   else
     raise EEFError.CreateFmt('Class %s not found.', [AId]);
+end;
+
+function TEFRegistry.GetClassIds: TArray<string>;
+{$IFDEF D15+}
+begin
+  Result := Classes.Keys.ToArray;
+{$ELSE}
+var
+  LIndex: Integer;
+  LClassId: string;
+begin
+  SetLength(Result, Classes.Count);
+  LIndex := 0;
+  for LClassId in Classes.Keys do
+  begin
+    Result[LIndex] := LClassId;
+    Inc(LIndex);
+  end;
+{$ENDIF}
 end;
 
 procedure TEFRegistry.RegisterClass(const AId: string; const AClass: TClass);
 begin
   BeforeRegisterClass(AId, AClass);
-  FClasses.Add(UpperCase(AId), AClass);
+  FClasses.Add(AId, AClass);
   AfterRegisterClass(AId, AClass);
 end;
 
 function TEFRegistry.HasClass(const AId: string): Boolean;
 begin
-  Result := FClasses.ContainsKey(UpperCase(AId));
+  Result := FClasses.ContainsKey(AId);
 end;
 
 procedure TEFRegistry.UnregisterClass(const AId: string);
 begin
   Assert(AId <> '');
 
-  if FClasses.ContainsKey(UpperCase(AId)) then
-    FClasses.Remove(UpperCase(AId));
+  if FClasses.ContainsKey(AId) then
+    FClasses.Remove(AId);
 end;
 
 { TEFFactory }
@@ -292,6 +345,22 @@ end;
 function TEFFactory.HasClass(const AId: string): Boolean;
 begin
   Result := FRegistry.HasClass(AId);
+end;
+
+{ TEFTriple }
+
+procedure TEFTriple.AssignPair({$IFDEF D15+}const {$ENDIF}APair: TEFPair);
+begin
+  Value1 := APair.Key;
+  Value2 := APair.Value;
+  Value3 := '';
+end;
+
+constructor TEFTriple.Create(const AValue1, AVAlue2, AVAlue3: string);
+begin
+  Value1 := AValue1;
+  Value2 := AValue2;
+  Value3 := AValue3;
 end;
 
 end.

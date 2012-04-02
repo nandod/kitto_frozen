@@ -23,9 +23,9 @@ interface
 uses
   Generics.Collections,
   ExtPascal, Ext, ExtForm, ExtData, ExtGrid, ExtPascalUtils,
-  EF.ObserverIntf,
+  EF.ObserverIntf, EF.Types,
   Kitto.Metadata.Views, Kitto.Metadata.DataView, Kitto.Store, Kitto.Types,
-  Kitto.Ext.Base, Kitto.ext.Controller;
+  Kitto.Ext.Base, Kitto.Ext.Controller;
 
 type
   TKExtFilterPanel = class(TKExtPanelBase)
@@ -45,7 +45,6 @@ type
     FViewTable: TKViewTable;
     procedure SetView(const AValue: TKView);
   public
-    destructor Destroy; override;
     property View: TKView read FView write SetView;
     property ViewTable: TKViewTable read FViewTable write FViewTable;
     property ServerStore: TKViewTableStore read FServerStore write FServerStore;
@@ -91,6 +90,7 @@ type
     function GetRowButtonsDisableJS: string;
     function GetConfirmCall(const AMessage: string;
       const AMethod: TExtProcedure): string;
+    function GetRowColorPatterns(out AFieldName: string): TEFPairs;
   protected
     procedure InitDefaults; override;
   public
@@ -112,7 +112,7 @@ implementation
 
 uses
   SysUtils, StrUtils, Math,
-  EF.Types, EF.Tree, EF.StrUtils, EF.Localization,
+  EF.Tree, EF.StrUtils, EF.Localization,
   Kitto.Metadata.Models, Kitto.Rules, Kitto.AccessControl, Kitto.JSON,
   Kitto.Ext.Filters, Kitto.Ext.Session, Kitto.Ext.Utils;
 
@@ -179,7 +179,7 @@ var
 begin
   LSortFieldName := ViewTable.GetString('Controller/Grouping/SortFieldName', GetGroupingFieldName);
   if LSortFieldName <> '' then
-    Result := ViewTable.FieldByName(LSortFieldName).QualifiedNameOrExpression
+    Result := ViewTable.FieldByName(LSortFieldName).QualifiedDBNameOrExpression
   else
     Result := ''
 end;
@@ -195,7 +195,7 @@ begin
   if ServerStore.ChangesPending then
   begin
     LTotal := ServerStore.RecordCount;
-    LData := ServerStore.GetAsJSON;
+    LData := ServerStore.GetAsJSON(True);
   end
   else
   begin
@@ -205,13 +205,13 @@ begin
     if (LStart <> 0) or (LLimit <> 0) then
     begin
       LTotal := ServerStore.LoadPage(GetFilterExpression, GetOrderByClause, LStart, LLimit);
-      LData := ServerStore.GetAsJSON;
+      LData := ServerStore.GetAsJSON(True);
     end
     else
     begin
       ServerStore.Load(GetFilterExpression, GetOrderByClause);
       LTotal := ServerStore.RecordCount;
-      LData := ServerStore.GetAsJSON(0, Min(MAX_RECORD_COUNT, ServerStore.RecordCount));
+      LData := ServerStore.GetAsJSON(True, 0, Min(MAX_RECORD_COUNT, ServerStore.RecordCount));
     end;
   end;
   Session.Response := Format('{Total:%d,Root:%s}', [LTotal, LData]);
@@ -237,6 +237,9 @@ var
   LGroupingMenu: Boolean;
   LCountTemplate: string;
   LGroupingFieldName: string;
+  LRowClassProvider: string;
+  LRowColorPatterns: TEFPairs;
+  LRowColorFieldName: string;
 begin
   { TODO : investigate the row body feature }
   LGroupingFieldName := GetGroupingFieldName;
@@ -281,8 +284,19 @@ Note: remote sort passes params sort and dir. }
   end;
   FGridView.EmptyText := _('No data to display.');
   FGridView.EnableRowBody := True;
-  { TODO : make it configurable? }
+  { TODO : make ForceFit configurable? }
   FGridView.ForceFit := False;
+  LRowClassProvider := ViewTable.GetExpandedString('Controller/RowClassProvider');
+  if LRowClassProvider <> '' then
+    FGridView.JSCode('getRowClass:' + LRowClassProvider)
+  else
+  begin
+    LRowColorPatterns := GetRowColorPatterns(LRowColorFieldName);
+    if Length(LRowColorPatterns) > 0 then
+      FGridView.JSCode('getRowClass:' +
+        Format('function (r) { return getRowColorStyleRule(r, ''%s'', [%s]);}',
+          [LRowColorFieldName, PairsToJSON(LRowColorPatterns)]));
+  end;
 
   FStore.Url := MethodURI(GetRecordPage);
   FReader := TExtDataJsonReader.Create(JSObject('')); // Must pass '' otherwise invalid code is generated.
@@ -334,7 +348,7 @@ var
     function SetRenderer(const AColumn: TExtGridColumn): Boolean;
     var
       LImages: TEFNode;
-      LPairs: TEFPairs;
+      LTriples: TEFTriples;
       I: Integer;
     begin
       Result := False;
@@ -342,14 +356,20 @@ var
       LImages := AViewField.FindNode('Images');
       if Assigned(LImages) and (LImages.ChildCount > 0) then
       begin
-        // Expand image names to URLs.
-        LPairs := LImages.GetChildPairs;
-        for I := Low(LPairs) to High(LPairs) do
-          LPairs[I].Key := Session.Config.GetImageURL(LPairs[I].Key);
+        // Get image list into array of triples (URL/regexp/template).
+        SetLength(LTriples, LImages.ChildCount);
+        for I := 0 to LImages.ChildCount - 1 do
+        begin
+          LTriples[I].Value1 := Session.Config.GetImageURL(LImages.Children[I].Name);
+          LTriples[I].Value2 := LImages.Children[I].AsExpandedString;
+          LTriples[I].Value3 := LImages.Children[I].GetExpandedString('DisplayTemplate');
+          if LTriples[I].Value3 = '' then
+            LTriples[I].Value3 := AViewField.DisplayTemplate;
+        end;
         // Pass array to the client-side renderer.
         AColumn.RendererExtFunction := AColumn.JSFunction('v',
           Format('return formatWithImage(v, [%s], %s);',
-            [PairsToJSON(LPairs), IfThen(AViewField.BlankValue, 'false', 'true')]));
+            [TriplesToJSON(LTriples), IfThen(AViewField.BlankValue, 'false', 'true')]));
       end;
     end;
 
@@ -403,7 +423,10 @@ var
         Result := TExtGridNumberColumn.AddTo(FGridPanel.Columns);
         if not SetRenderer(Result) then
         begin
-          TExtGridNumberColumn(Result).Format := '0';
+          LFormat := AViewField.DisplayFormat;
+          if LFormat = '' then
+            LFormat := '0,000'; // '0';
+          TExtGridNumberColumn(Result).Format := AdaptExtNumberFormat(LFormat, Session.Config.UserFormatSettings);
           Result.Align := alRight;
         end;
       end
@@ -412,7 +435,10 @@ var
         Result := TExtGridNumberColumn.AddTo(FGridPanel.Columns);
         if not SetRenderer(Result) then
         begin
-          TExtGridNumberColumn(Result).Format := AdaptExtNumberFormat('0.00', Session.Config.UserFormatSettings);
+          LFormat := AViewField.DisplayFormat;
+          if LFormat = '' then
+            LFormat := '0,000.' + DupeString('0', AViewField.DecimalPrecision);
+          TExtGridNumberColumn(Result).Format := AdaptExtNumberFormat(LFormat, Session.Config.UserFormatSettings);
           Result.Align := alRight;
         end;
       end
@@ -421,8 +447,11 @@ var
         Result := TExtGridNumberColumn.AddTo(FGridPanel.Columns);
         if not SetRenderer(Result) then
         begin
-          { TODO : format as money }
-          TExtGridNumberColumn(Result).Format := AdaptExtNumberFormat('0,0.00', Session.Config.UserFormatSettings);
+          { TODO : format as money? }
+          LFormat := AViewField.DisplayFormat;
+          if LFormat = '' then
+            LFormat := '0,000.00';
+          TExtGridNumberColumn(Result).Format := AdaptExtNumberFormat(LFormat, Session.Config.UserFormatSettings);
           Result.Align := alRight;
         end;
       end
@@ -436,7 +465,7 @@ var
   begin
     LColumn := CreateColumn;
     LColumn.Sortable := not AViewField.IsBlob;
-    LColumn.Header := AViewField.DisplayLabel;
+    LColumn.Header := _(AViewField.DisplayLabel);
     LColumn.DataIndex := AViewField.AliasedName;
 
     LColumnWidth := AViewField.DisplayWidth;
@@ -531,6 +560,47 @@ begin
   ShowEditWindow(LocateRecordFromSession(ViewTable, ServerStore), emEditCurrentRecord);
 end;
 
+function TKExtGridPanel.GetRowColorPatterns(out AFieldName: string): TEFPairs;
+
+  function GetFieldColors(const AField: TKViewField): TEFPairs;
+  begin
+    Result := AField.GetChildrenAsPairs('Colors', True);
+  end;
+
+  function HasFieldColors(const AField: TKViewField): Boolean;
+  begin
+    Result := Assigned(AField.FindNode('Colors'));
+  end;
+
+var
+  LFieldNode: TEFNode;
+  I: Integer;
+begin
+  AFieldName := '';
+  Result := nil;
+  LFieldNode := ViewTable.FindNode('Controller/RowColorField');
+  if Assigned (LFieldNode) then
+  begin
+    AFieldName := LFieldNode.AsExpandedString;
+    if LFieldNode.ChildCount > 0 then
+      Result := LFieldNode.GetChildPairs(True)
+    else
+      Result := GetFieldColors(ViewTable.FieldByName(LFieldNode.AsExpandedString));
+  end
+  else
+  begin
+    for I := 0 to ViewTable.FieldCount - 1 do
+    begin
+      if HasFieldColors(ViewTable.Fields[I]) then
+      begin
+        AFieldName := ViewTable.Fields[I].FieldName;
+        Result := GetFieldColors(ViewTable.Fields[I]);
+        Break;
+      end;
+    end;
+  end;
+end;
+
 function TKExtGridPanel.IsReadOnly: Boolean;
 begin
   Result := ViewTable.View.GetBoolean('IsReadOnly')
@@ -557,16 +627,15 @@ begin
   FEditHostWindow.Closable := False;
 
   if AEditMode = emNewRecord then
-    FEditHostWindow.Title := Format(_('New %s'), [ViewTable.DisplayLabel])
+    FEditHostWindow.Title := Format(_('Add %s'), [_(ViewTable.DisplayLabel)])
   else if IsReadOnly then
-    FEditHostWindow.Title := ViewTable.DisplayLabel
+    FEditHostWindow.Title := _(ViewTable.DisplayLabel)
   else
-    FEditHostWindow.Title := Format(_('Edit %s'), [ViewTable.DisplayLabel]);
+    FEditHostWindow.Title := Format(_('Edit %s'), [_(ViewTable.DisplayLabel)]);
   //FEditHostWindow.On('close', Ajax(EditWindowClosed, ['Window', '%0.nm']));
 
   LFormControllerType := ViewTable.View.GetString('Controller/FormController', 'Form');
   LFormController := TKExtControllerFactory.Instance.CreateController(ViewTable.View, FEditHostWindow, Self, LFormControllerType);
-  LFormController.OwnsView := False;
   LFormController.Config.SetObject('Sys/ServerStore', ServerStore);
   if Assigned(ARecord) then
     LFormController.Config.SetObject('Sys/Record', ARecord);
@@ -587,7 +656,7 @@ begin
 
   FViewTable := AValue;
 
-  Title := FViewTable.PluralDisplayLabel;
+  Title := _(FViewTable.PluralDisplayLabel);
 
   FIsAddVisible := not ViewTable.GetBoolean('Controller/PreventAdding');
   FIsAddAllowed := FIsAddVisible and ViewTable.IsAccessGranted(ACM_ADD);
@@ -599,7 +668,7 @@ begin
   CreateStoreAndView;
   CreateFilterPanel;
 
-  LKeyFieldNames := Join(ViewTable.GetKeyFieldAliasedNames(), ',');
+  LKeyFieldNames := Join(ViewTable.GetKeyFieldAliasedNames, ',');
   FGridPanel.On('rowdblclick', AjaxSelection(EditViewRecord, FSelModel, LKeyFieldNames, LKeyFieldNames, []));
 
   // By default show paging toolbar for large models.
@@ -674,7 +743,7 @@ begin
   if not ViewTable.IsDetail then
   begin
     LRecord.Save(True);
-    Session.Flash(Format(_('%s deleted.'), [ViewTable.DisplayLabel]));
+    Session.Flash(Format(_('%s deleted.'), [_(ViewTable.DisplayLabel)]));
   end;
   RefreshData;
 end;
@@ -728,7 +797,7 @@ begin
   if not IsReadOnly and FIsAddVisible then
   begin
     LNewButton := TExtButton.AddTo(Result.Items);
-    LNewButton.Text := Format(_('New %s'), [ViewTable.DisplayLabel]);
+    LNewButton.Text := Format(_('Add %s'), [_(ViewTable.DisplayLabel)]);
     LNewButton.Icon := Session.Config.GetImageURL('new_record');
     if not FIsAddAllowed then
       LNewButton.Disabled := True
@@ -740,12 +809,12 @@ begin
   LEditButton := TExtButton.AddTo(Result.Items);
   if IsReadOnly then
   begin
-    LEditButton.Text := Format(_('View %s'), [ViewTable.DisplayLabel]);
+    LEditButton.Text := Format(_('View %s'), [_(ViewTable.DisplayLabel)]);
     LEditButton.Icon := Session.Config.GetImageURL('view_record');
   end
   else
   begin
-    LEditButton.Text := Format(_('Edit %s'), [ViewTable.DisplayLabel]);
+    LEditButton.Text := Format(_('Edit %s'), [_(ViewTable.DisplayLabel)]);
     LEditButton.Icon := Session.Config.GetImageURL('edit_record');
   end;
   if not FIsEditAllowed then
@@ -761,14 +830,14 @@ begin
   begin
     TExtToolbarSpacer.AddTo(Result.Items);
     LDeleteButton := TExtButton.AddTo(Result.Items);
-    LDeleteButton.Text := Format(_('Delete %s'), [ViewTable.DisplayLabel]);
+    LDeleteButton.Text := Format(_('Delete %s'), [_(ViewTable.DisplayLabel)]);
     LDeleteButton.Icon := Session.Config.GetImageURL('delete_record');
     if not FIsDeleteAllowed then
       LDeleteButton.Disabled := True
     else
     begin
       LDeleteButton.Handler := JSFunction(GetSelectConfirmCall(
-        Format(_('Selected %s will be deleted. Are you sure?'), [ViewTable.DisplayLabel]), DeleteCurrentRecord));
+        Format(_('Selected %s will be deleted. Are you sure?'), [_(ViewTable.DisplayLabel)]), DeleteCurrentRecord));
       FButtonsRequiringSelection.Add(LDeleteButton);
     end;
   end;
@@ -780,7 +849,7 @@ begin
   LRefreshButton.Handler := Ajax(RefreshData);
   LRefreshButton.Tooltip := _('Refresh data');
 
-  LToolViews := ViewTable.FindNode('Controller/List/ToolViews');
+  LToolViews := ViewTable.FindNode('Controller/ToolViews');
   if Assigned(LToolViews) and (LToolViews.ChildCount > 0) then
   begin
     TExtToolbarSeparator.AddTo(Result.Items);
@@ -864,13 +933,6 @@ end;
 
 { TKExtActionButton }
 
-destructor TKExtActionButton.Destroy;
-begin
-  if Assigned(FView) and not FView.IsPersistent then
-    FreeAndNil(FView);
-  inherited;
-end;
-
 procedure TKExtActionButton.ExecuteAction;
 var
   LController: IKExtController;
@@ -880,7 +942,6 @@ begin
   Assert(Assigned(FServerStore));
 
   LController := TKExtControllerFactory.Instance.CreateController(FView, nil);
-  LController.OwnsView := False;
   LController.Config.SetObject('Sys/ServerStore', FServerStore);
   LController.Config.SetObject('Sys/ViewTable', FViewTable);
   LController.Display;
@@ -897,7 +958,6 @@ begin
 
   LRecord := LocateRecordFromSession(FViewTable, FServerStore);
   LController := TKExtControllerFactory.Instance.CreateController(FView, nil);
-  LController.OwnsView := False;
   LController.Config.SetObject('Sys/ServerStore', FServerStore);
   LController.Config.SetObject('Sys/Record', LRecord);
   LController.Config.SetObject('Sys/ViewTable', FViewTable);
@@ -912,7 +972,7 @@ begin
 
   FView := AValue;
 
-  Text := FView.DisplayLabel;
+  Text := _(FView.DisplayLabel);
   Icon := Session.Config.GetImageURL(FView.ImageName);
   LTooltip := FView.GetExpandedString('Hint');
   if LTooltip <> '' then

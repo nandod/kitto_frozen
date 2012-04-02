@@ -42,9 +42,12 @@ type
     procedure InternalFieldValueToNode(const AField: TField; const ANode: TEFNode); virtual;
     procedure InternalYamlValueToNode(const AYamlValue: string; const ANode: TEFNode;
       const AFormatSettings: TFormatSettings); virtual;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; virtual;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; virtual;
   public
     class function GetTypeName: string; virtual;
+    class function HasSize: Boolean; virtual;
+    class function HasScale: Boolean; virtual;
 
     procedure FieldValueToNode(const AField: TField; const ANode: TEFNode);
     procedure NodeToParam(const ANode: TEFNode; const AParam: TParam);
@@ -53,7 +56,9 @@ type
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; virtual;
     function SupportsEmptyAsNull: Boolean; virtual;
     function IsBlob(const ASize: Integer): Boolean; virtual;
-    function NodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; virtual;
+    function IsText: Boolean; virtual;
+    function NodeToJSONValue(const AForDisplay: Boolean; const ANode: TEFNode;
+      const AJSFormatSettings: TFormatSettings): string; virtual;
     function GetJSTypeName: string; virtual;
 
     function ValueToString(const AValue: Variant): string; virtual;
@@ -97,6 +102,8 @@ type
     function SupportsEmptyAsNull: Boolean; override;
     function IsBlob(const ASize: Integer): Boolean; override;
     function GetJSTypeName: string; override;
+    class function HasSize: Boolean; override;
+    function IsText: Boolean; override;
   end;
 
   TEFMemoDataType = class(TEFStringDataType)
@@ -120,7 +127,8 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
   end;
 
@@ -133,7 +141,8 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
   end;
 
   TEFDateTimeDataType = class(TEFDataType)
@@ -145,7 +154,8 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
   end;
 
@@ -157,7 +167,8 @@ type
       const AFormatSettings: TFormatSettings); override;
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
   end;
 
@@ -174,7 +185,7 @@ type
     function GetJSTypeName: string; override;
   end;
 
-  TEFDecimalNumericDataTypeBase = class(TEFDataType);
+  TEFDecimalNumericDataTypeBase = class(TEFNumericDataTypeBase);
 
   TEFCurrencyDataType = class(TEFDecimalNumericDataTypeBase)
   protected
@@ -185,8 +196,11 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
+    class function HasSize: Boolean; override;
+    class function HasScale: Boolean; override;
   end;
 
   TEFFloatDataType = class(TEFDecimalNumericDataTypeBase)
@@ -198,7 +212,8 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
   end;
 
@@ -211,8 +226,11 @@ type
   public
     function GetDefaultDisplayWidth(const ASize: Integer): Integer; override;
     function SupportsEmptyAsNull: Boolean; override;
-    function InternalNodeToJSONValue(const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
+    function InternalNodeToJSONValue(const AForDisplay: Boolean;
+      const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
     function GetJSTypeName: string; override;
+    class function HasSize: Boolean; override;
+    class function HasScale: Boolean; override;
   end;
 
   ///	<summary>
@@ -238,8 +256,13 @@ type
   private
     FCriticalSection: TCriticalSection;
     FNodes: TEFNodes;
+    FAnnotations: TStrings;
     function GetChild(I: Integer): TEFNode; overload;
     function GetChildCount: Integer; overload;
+    function GetAnnotations: TStrings;
+    function GetAnnotation(const AIndex: Integer): string;
+    function GetAnnotationCount: Integer;
+    procedure SetAnnotation(const AIndex: Integer; const AValue: string);
   protected
     function GetChildClass(const AName: string): TEFNodeClass; virtual;
     procedure EnterCS; virtual;
@@ -253,6 +276,7 @@ type
   public
     constructor Create; virtual;
     destructor Destroy; override;
+    procedure BeforeSave; virtual;
   public
     ///	<summary>
     ///	  Creates a new tree holding a deep copy of the specified tree.
@@ -300,6 +324,17 @@ type
     ///	  Finds a child node by name. Returns nil if not found.
     ///	</summary>
     function FindChild(const AName: string; const ACreateMissingNodes: Boolean = False): TEFNode;
+
+    type
+      ///	<summary>Type used by FindChildByPredicate.</summary>
+      TPredicate = reference to function (const ANode: TEFNode): Boolean;
+
+    ///	<summary>
+    ///	  Finds a child node by predicate. The predicate function is called
+    ///   for each child and should return True if a child qualifies.
+    ///   If no qualifying child is found, the method return nil.
+    ///	</summary>
+    function FindChildByPredicate(const APredicate: TPredicate): TEFNode;
 
     ///	<summary>
     ///	  Finds a child node by name. Raises an exception if not found.
@@ -476,7 +511,9 @@ type
     ///	<returns>
     ///	  Array of name/value pairs.
     ///	</returns>
-    function GetChildrenAsPairs(const APath: string; const ADefaultValue: TEFPairs = nil): TEFPairs;
+    function GetChildrenAsPairs(const APath: string;
+      const AExpandMacrosInValues: Boolean = False;
+      const ADefaultValue: TEFPairs = nil): TEFPairs;
 
     ///	<summary>
     ///	  Same as GetChildrenAsStrings, but returns expanded strings: Each string is
@@ -535,6 +572,11 @@ type
     procedure SetChildValuesfromStrings(const AStrings: TStrings;
       const AUseJSDateFormat: Boolean; const AFormatSettings: TFormatSettings;
       const ATranslator: TNameTranslator);
+
+    property AnnotationCount: Integer read GetAnnotationCount;
+    property Annotations[const AIndex: Integer]: string read GetAnnotation write SetAnnotation;
+    function AddAnnotation(const AAnnotation: string): Integer;
+    procedure AssignAnnotations(const AStrings: TStrings);
   end;
 
   ///	<summary>
@@ -546,6 +588,7 @@ type
     FValue: Variant;
     FName: string;
     FDataType: TEFDataType;
+    FValueAttributes: string;
     function GetAsString: string;
     function GetAsInteger: Integer;
     function FindNodeFrom(const APath: TStringDynArray; const AIndex: Integer;
@@ -581,6 +624,9 @@ type
     procedure SetDataType(const AValue: TEFDataType);
     function GetAsBytes: TBytes;
     procedure SetAsBytes(const AValue: TBytes);
+    function GetAsExpandedPair: TEFPair;
+    function GetIsMultiLineValue: Boolean;
+    function GetIsMultiLineWithNLValue: Boolean;
   protected
     procedure SetName(const AValue: string);
     function GetName: string; virtual;
@@ -589,6 +635,9 @@ type
   public
     function GetEnumerator: TEnumerator<TEFNode>;
   public
+    function FindNode(const APath: string;
+      const ACreateMissingNodes: Boolean = False): TEFNode; override;
+
     ///	<summary>
     ///	  Copies everything from ASource, overwriting any existing data. if
     ///	  ASource is a node, name and value are copied as well.
@@ -656,6 +705,9 @@ type
     ///	</summary>
     property Name: string read GetName;
 
+    ///	<summary>Renames the node. Normally shouldn't be used.</summary>
+    procedure Rename(const ANewName: string);
+
     ///	<summary>
     ///	  A reference to the node's data type. Should be an object managed by
     ///	  the data type factory.
@@ -666,6 +718,12 @@ type
     ///	  Plain value of the node.
     ///	</summary>
     property Value: Variant read GetValue write SetValue;
+
+    ///	<summary>Used for I/O.</summary>
+    property ValueAttributes: string read FValueAttributes write FValueAttributes;
+
+    property IsMultiLineValue: Boolean read GetIsMultiLineValue;
+    property IsMultiLineWithNLValue: Boolean read GetIsMultiLineWithNLValue;
 
     ///	<summary>
     ///	  Node value as a string.
@@ -681,6 +739,11 @@ type
     ///	  Node value as a pair.
     ///	</summary>
     property AsPair: TEFPair read GetAsPair write SetAsPair;
+
+    ///	<summary>
+    ///	  Node value as a pair with expanded macros in the value part.
+    ///	</summary>
+    property AsExpandedPair: TEFPair read GetAsExpandedPair;
 
     ///	<summary>
     ///	  Node value as a list of pairs.
@@ -809,7 +872,7 @@ type
     ///	<summary>
     ///	  Returns all child nodes as name/value pairs.
     ///	</summary>
-    function GetChildPairs: TEFPairs;
+    function GetChildPairs(const AExpandMacrosInValues: Boolean = False): TEFPairs;
 
     ///	<summary>
     ///	  Returns an array of names of all direct children of the node.
@@ -926,7 +989,12 @@ type
     ///	<summary>
     ///	  Returns a reference to the registered data type specified by name.
     ///	</summary>
-    function GetDataType(const AId: string): TEFDataType;
+    function GetDataType(const AId: string): TEFDataType; overload;
+
+    ///	<summary>
+    ///	  Returns a reference to the registered data type specified by class.
+    ///	</summary>
+    function GetDataType(const ADataTypeClass: TEFDataTypeClass): TEFDataType; overload;
   end;
 
 implementation
@@ -989,6 +1057,12 @@ begin
   Result := FDataTypes[AId];
 end;
 
+function TEFDataTypeFactory.GetDataType(
+  const ADataTypeClass: TEFDataTypeClass): TEFDataType;
+begin
+  Result := GetDataType(ADataTypeClass.GetTypeName);
+end;
+
 class function TEFDataTypeFactory.GetInstance: TEFDataTypeFactory;
 begin
   if FInstance = nil then
@@ -1036,6 +1110,7 @@ begin
   begin
     FName := TEFNode(ASource).Name;
     AssignValue(TEFNode(ASource));
+    FValueAttributes := TEFNode(ASource).ValueAttributes;
   end;
 end;
 
@@ -1138,6 +1213,11 @@ begin
   Result := DataType.ValueToDecimal(FValue);
 end;
 
+function TEFNode.GetAsExpandedPair: TEFPair;
+begin
+  Result := TEFPair.Create(Name, AsExpandedString);
+end;
+
 function TEFNode.GetAsExpandedString: string;
 begin
   Result := TEFMacroExpansionEngine.Instance.Expand(AsString);
@@ -1215,13 +1295,16 @@ begin
     Result[I] := Children[I].Name;
 end;
 
-function TEFNode.GetChildPairs: TEFPairs;
+function TEFNode.GetChildPairs(const AExpandMacrosInValues: Boolean): TEFPairs;
 var
   I: Integer;
 begin
   SetLength(Result, ChildCount);
   for I := 0 to ChildCount - 1 do
-    Result[I] := Children[I].AsPair;
+    if AExpandMacrosInValues then
+      Result[I] := Children[I].AsExpandedPair
+    else
+      Result[I] := Children[I].AsPair;
 end;
 
 function TEFNode.GetEnumerator: TEnumerator<TEFNode>;
@@ -1252,6 +1335,17 @@ begin
     Result := -1;
 end;
 
+function TEFNode.GetIsMultiLineValue: Boolean;
+begin
+  Result := GetIsMultiLineWithNLValue or ContainsText(FValueAttributes, '>');
+end;
+
+function TEFNode.GetIsMultiLineWithNLValue: Boolean;
+begin
+  Result := ContainsText(FValueAttributes, '|')
+    or ContainsText(AsString, sLineBreak);
+end;
+
 function TEFNode.GetIsNull: Boolean;
 begin
   Result := VarIsNull(FValue);
@@ -1273,6 +1367,11 @@ end;
 function TEFNode.GetValue: Variant;
 begin
   Result := FValue;
+end;
+
+procedure TEFNode.Rename(const ANewName: string);
+begin
+  SetName(ANewName);
 end;
 
 procedure TEFNode.SetAsBoolean(const AValue: Boolean);
@@ -1398,6 +1497,15 @@ begin
   FValue := Null;
 end;
 
+function TEFNode.FindNode(const APath: string;
+  const ACreateMissingNodes: Boolean): TEFNode;
+begin
+  if APath = '' then
+    Result := Self
+  else
+    Result := inherited FindNode(APath, ACreateMissingNodes);
+end;
+
 function TEFNode.FindNodeFrom(const APath: TStringDynArray;
   const AIndex: Integer; const ACreateMissingNodes: Boolean): TEFNode;
 var
@@ -1444,6 +1552,8 @@ end;
 
 function TEFTree.AddChild(const AName: string; const AValue: Variant): TEFNode;
 begin
+  Assert(AName <> '');
+
   Result := AddChild(GetChildClass(AName).Create(AName, AValue));
 end;
 
@@ -1456,8 +1566,15 @@ begin
   Result := ANode;
 end;
 
+function TEFTree.AddAnnotation(const AAnnotation: string): Integer;
+begin
+  Result := GetAnnotations.Add(AAnnotation);
+end;
+
 function TEFTree.AddChild(const AName: string): TEFNode;
 begin
+  Assert(AName <> '');
+
   Result := AddChild(GetChildClass(AName).Create(AName));
 end;
 
@@ -1467,8 +1584,25 @@ var
 begin
   Clear;
   if Assigned(ASource) then
+  begin
+    if ASource.AnnotationCount > 0 then
+      GetAnnotations.Assign(ASource.FAnnotations);
     for LNode in ASource.FNodes do
       AddChild(GetChildClass(LNode.Name).Clone(LNode));
+  end;
+end;
+
+procedure TEFTree.AssignAnnotations(const AStrings: TStrings);
+begin
+  GetAnnotations.Assign(AStrings);
+end;
+
+procedure TEFTree.BeforeSave;
+var
+  I: Integer;
+begin
+  for I := 0 to ChildCount - 1 do
+    Children[I].BeforeSave;
 end;
 
 procedure TEFTree.Clear;
@@ -1510,6 +1644,7 @@ end;
 destructor TEFTree.Destroy;
 begin
   FreeAndNil(FNodes);
+  FreeAndNil(FAnnotations);
   FreeAndNil(FCriticalSection);
   inherited;
 end;
@@ -1542,20 +1677,31 @@ begin
 end;
 
 function TEFTree.FindChild(const AName: string; const ACreateMissingNodes: Boolean): TEFNode;
+begin
+  Result := FindChildByPredicate(
+    function (const ANode: TEFNode): Boolean
+    begin
+      Result := SameText(ANode.Name, AName);
+    end);
+  if (Result = nil) and ACreateMissingNodes then
+    Result := AddChild(AName, '');
+end;
+
+function TEFTree.FindChildByPredicate(const APredicate: TPredicate): TEFNode;
 var
   I: Integer;
 begin
+  Assert(Assigned(APredicate));
+
   Result := nil;
   for I := 0 to ChildCount - 1 do
   begin
-    if SameText(Children[I].Name, AName) then
+    if APredicate(Children[I]) then
     begin
       Result := Children[I];
       Break;
     end;
   end;
-  if (Result = nil) and ACreateMissingNodes then
-    Result := AddChild(AName, '');
 end;
 
 function TEFTree.ChildByName(const AName: string): TEFNode;
@@ -1589,13 +1735,13 @@ begin
 end;
 
 function TEFTree.GetChildrenAsPairs(const APath: string;
-  const ADefaultValue: TEFPairs): TEFPairs;
+  const AExpandMacrosInValues: Boolean; const ADefaultValue: TEFPairs): TEFPairs;
 var
   LNode: TEFNode;
 begin
   LNode := FindNode(APath);
   if Assigned(LNode) then
-    Result := LNode.GetChildPairs
+    Result := LNode.GetChildPairs(AExpandMacrosInValues)
   else
     Result := ADefaultValue;
 end;
@@ -1633,6 +1779,26 @@ begin
   Result := FindNode(APath, ACreateMissingNodes);
   if not Assigned(Result) then
     raise EEFError.CreateFmt(_('Node %s not found.'), [APath]);
+end;
+
+function TEFTree.GetAnnotation(const AIndex: Integer): string;
+begin
+  Result := GetAnnotations[AIndex];
+end;
+
+function TEFTree.GetAnnotationCount: Integer;
+begin
+  if not Assigned(FAnnotations) then
+    Result := 0
+  else
+    Result := FAnnotations.Count;
+end;
+
+function TEFTree.GetAnnotations: TStrings;
+begin
+  if not Assigned(FAnnotations) then
+    FAnnotations := TStringList.Create;
+  Result := FAnnotations;
 end;
 
 function TEFTree.GetBoolean(const APath: string;
@@ -1779,6 +1945,11 @@ begin
     Result := ADefaultValue;
 end;
 
+procedure TEFTree.SetAnnotation(const AIndex: Integer; const AValue: string);
+begin
+  GetAnnotations[AIndex] := AValue;
+end;
+
 procedure TEFTree.SetBoolean(const APath: string; const AValue: Boolean);
 begin
   GetNode(APath, True).AsBoolean := AValue;
@@ -1846,7 +2017,7 @@ begin
       else if LChild.DataType is TEFDateTimeDataType then
         LChild.AsDateTime := GetDateTime
       else if LChild.DataType is TEFCurrencyDataType then
-        LChild.AsDateTime := GetFloat
+        LChild.AsCurrency := GetFloat
       else if LChild.DataType is TEFFloatDataType then
         LChild.AsFloat := GetFloat
       else if LChild.DataType is TEFDecimalDataType then
@@ -1989,8 +2160,8 @@ begin
   end;
 end;
 
-function TEFDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Result := ANode.AsString;
 end;
@@ -2032,15 +2203,20 @@ begin
   Result := False;
 end;
 
-function TEFDataType.NodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFDataType.IsText: Boolean;
+begin
+  Result := False;
+end;
+
+function TEFDataType.NodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Assert(Assigned(ANode));
 
   if ANode.IsNull then
     Result := 'null'
   else
-    Result := '"' + InternalNodeToJSONValue(ANode, AJSFormatSettings) + '"';
+    Result := '"' + InternalNodeToJSONValue(AForDisplay, ANode, AJSFormatSettings) + '"';
 end;
 
 procedure TEFDataType.NodeToParam(const ANode: TEFNode; const AParam: TParam);
@@ -2072,6 +2248,16 @@ end;
 class function TEFDataType.GetTypeName: string;
 begin
   Result := StripPrefixAndSuffix(ClassName, 'TEF', 'DataType');
+end;
+
+class function TEFDataType.HasScale: Boolean;
+begin
+  Result := False;
+end;
+
+class function TEFDataType.HasSize: Boolean;
+begin
+  Result := False;
 end;
 
 procedure TEFDataType.YamlValueToNode(const AYamlValue: string;
@@ -2118,8 +2304,16 @@ begin
 end;
 
 function TEFDataType.ValueToInteger(const AValue: Variant): Integer;
+const
+  KB = 1024;
+  MB = KB * 1024;
 begin
-  Result := AValue;
+  if EndsStr('MB', AValue) then
+    Result := MB * StrToInt(StripSuffix(AValue, 'MB'))
+  else if EndsStr('KB', AValue) then
+    Result := KB * StrToInt(StripSuffix(AValue, 'KB'))
+  else
+    Result := AValue;
 end;
 
 function TEFDataType.ValueToObject(const AValue: Variant): TObject;
@@ -2267,8 +2461,8 @@ begin
   ANode.AsDate := AField.AsDateTime;
 end;
 
-function TEFDateDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFDateDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Result := FormatDateTime(AJSFormatSettings.ShortDateFormat, ANode.AsDate);
 end;
@@ -2303,8 +2497,8 @@ begin
   ANode.AsTime := AField.AsDateTime;
 end;
 
-function TEFTimeDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFTimeDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Result := FormatDateTime(AJSFormatSettings.ShortTimeFormat, ANode.AsTime);
 end;
@@ -2345,8 +2539,8 @@ begin
   ANode.AsDateTime := AField.AsDateTime;
 end;
 
-function TEFDateTimeDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFDateTimeDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Result := DateTimeToStr(ANode.AsDateTime, AJSFormatSettings);
 end;
@@ -2395,8 +2589,8 @@ begin
   end;
 end;
 
-function TEFBooleanDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFBooleanDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
   Result := IfThen(ANode.AsBoolean, 'true', 'false');
 end;
@@ -2426,16 +2620,29 @@ begin
   Result := 'float';
 end;
 
+class function TEFCurrencyDataType.HasScale: Boolean;
+begin
+  Result := True;
+end;
+
+class function TEFCurrencyDataType.HasSize: Boolean;
+begin
+  Result := True;
+end;
+
 procedure TEFCurrencyDataType.InternalFieldValueToNode(const AField: TField;
   const ANode: TEFNode);
 begin
   ANode.AsCurrency := AField.AsCurrency;
 end;
 
-function TEFCurrencyDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFCurrencyDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
-  Result := FormatCurr(',0.00', ANode.AsCurrency, AJSFormatSettings);
+  if AForDisplay then
+    Result := FormatCurr(',0.00', ANode.AsCurrency, AJSFormatSettings)
+  else
+    Result := FormatCurr('0.00', ANode.AsCurrency, AJSFormatSettings)
 end;
 
 procedure TEFCurrencyDataType.InternalNodeToParam(const ANode: TEFNode;
@@ -2473,10 +2680,13 @@ begin
   ANode.AsFloat := AField.AsFloat;
 end;
 
-function TEFFloatDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFFloatDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
-  Result := FormatFloat(',0.00', ANode.AsFloat, AJSFormatSettings);
+  if AForDisplay then
+    Result := FormatFloat(',0.00', ANode.AsFloat, AJSFormatSettings)
+  else
+    Result := FormatFloat('0.00', ANode.AsFloat, AJSFormatSettings)
 end;
 
 procedure TEFFloatDataType.InternalNodeToParam(const ANode: TEFNode;
@@ -2529,16 +2739,29 @@ begin
   Result := 'float';
 end;
 
+class function TEFDecimalDataType.HasScale: Boolean;
+begin
+  Result := True;
+end;
+
+class function TEFDecimalDataType.HasSize: Boolean;
+begin
+  Result := True;
+end;
+
 procedure TEFDecimalDataType.InternalFieldValueToNode(const AField: TField;
   const ANode: TEFNode);
 begin
   ANode.AsDecimal := AField.AsBCD;
 end;
 
-function TEFDecimalDataType.InternalNodeToJSONValue(const ANode: TEFNode;
-  const AJSFormatSettings: TFormatSettings): string;
+function TEFDecimalDataType.InternalNodeToJSONValue(const AForDisplay: Boolean;
+  const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string;
 begin
-  Result := FormatFloat(',0.00', BcdToDouble(ANode.AsDecimal), AJSFormatSettings);
+  if AForDisplay then
+    Result := FormatFloat(',0.00', BcdToDouble(ANode.AsDecimal), AJSFormatSettings)
+  else
+    Result := FormatFloat('0.00', BcdToDouble(ANode.AsDecimal), AJSFormatSettings)
 end;
 
 procedure TEFDecimalDataType.InternalNodeToParam(const ANode: TEFNode;
@@ -2575,6 +2798,11 @@ begin
   Result := 'string';
 end;
 
+class function TEFStringDataType.HasSize: Boolean;
+begin
+  Result := True;
+end;
+
 procedure TEFStringDataType.InternalFieldValueToNode(const AField: TField;
   const ANode: TEFNode);
 begin
@@ -2596,6 +2824,11 @@ end;
 function TEFStringDataType.IsBlob(const ASize: Integer): Boolean;
 begin
   Result := ASize = 0;
+end;
+
+function TEFStringDataType.IsText: Boolean;
+begin
+  Result := True;
 end;
 
 function TEFStringDataType.SupportsEmptyAsNull: Boolean;

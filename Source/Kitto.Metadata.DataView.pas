@@ -53,7 +53,7 @@ type
     function GetDataType: TEFDataType;
     function GetIsRequired: Boolean;
     function GetIsReadOnly: Boolean;
-    function GetQualifiedName: string;
+    function GetQualifiedDBName: string;
     function GetModelName: string;
     function GetFieldName: string;
     function GetEmptyAsNull: Boolean;
@@ -61,7 +61,7 @@ type
     function GetModel: TKModel;
     function GetExpression: string;
     function GetAlias: string;
-    function GetQualifiedAliasedNameOrExpression: string;
+    function GetQualifiedAliasedDBNameOrExpression: string;
     function GetIsKey: Boolean;
     function GetSize: Integer;
     function GetIsBlob: Boolean;
@@ -76,10 +76,12 @@ type
     function GetHint: string;
     function GetEditFormat: string;
     function GetDisplayFormat: string;
-    function GetQualifiedNameOrExpression: string;
+    function GetQualifiedDBNameOrExpression: string;
     function GetReferenceField: TKModelField;
     function GetBlankValue: Boolean;
     function GetReferenceName: string;
+    function GetDisplayTemplate: string;
+    function GetFileNameField: string;
   protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
   public
@@ -88,12 +90,18 @@ type
 
     property Table: TKViewTable read GetTable;
     property Model: TKModel read GetModel;
+
+    ///	<summary>Returns a reference to the model field, or raises an exception
+    ///	if the model field is not found.</summary>
     property ModelField: TKModelField read GetModelField;
+
+    ///	<summary>Returns a reference to the model field, or nil.</summary>
+    function FindModelField: TKModelField;
     property Alias: string read GetAlias;
     property AliasedName: string read GetAliasedName;
-    property QualifiedAliasedNameOrExpression: string read GetQualifiedAliasedNameOrExpression;
-    property QualifiedName: string read GetQualifiedName;
-    property QualifiedNameOrExpression: string read GetQualifiedNameOrExpression;
+    property QualifiedAliasedDBNameOrExpression: string read GetQualifiedAliasedDBNameOrExpression;
+    property QualifiedDBName: string read GetQualifiedDBName;
+    property QualifiedDBNameOrExpression: string read GetQualifiedDBNameOrExpression;
     property AllowedValues: TEFPairs read GetAllowedValues;
 
     property CanInsert: Boolean read GetCanInsert;
@@ -170,11 +178,11 @@ type
     property EditFormat: string read GetEditFormat;
     property DisplayFormat: string read GetDisplayFormat;
     property BlankValue: Boolean read GetBlankValue;
+    property DisplayTemplate: string read GetDisplayTemplate;
 
     property Rules: TKRules read GetRules;
 
     procedure ApplyRules(const AApplyProc: TProc<TKRuleImpl>);
-
 
     ///	<summary>If the field is a reference field, creates and returns a list
     ///	of view fields in the current view table from the same referenced
@@ -191,6 +199,11 @@ type
     ///	<exception cref="Assert">If the field is not a reference field, an
     ///	assertion violation is raised.</exception>
     function CreateDerivedFieldsStore(const AKeyValues: string): TKStore;
+
+    ///	<summary>For blob or file reference fields, optionally specifies the
+    ///	name of another field in the same view table that will store the
+    ///	original file name upon upload.</summary>
+    property FileNameField: string read GetFileNameField;
   end;
 
   TKViewFields = class(TKMetadataItem)
@@ -260,6 +273,8 @@ type
   private
     function GetParentRecord: TKViewTableRecord;
     function GetViewField: TKViewField;
+  strict protected
+    function GetAsJSONValue(const AForDisplay: Boolean): string; override;
   public
     property ParentRecord: TKViewTableRecord read GetParentRecord;
     property ViewField: TKViewField read GetViewField;
@@ -334,6 +349,8 @@ type
     function GetFields: TKViewFields;
     function GetDetailTables: TKViewTables;
   public
+    procedure BeforeSave; override;
+
     property ModelName: string read GetModelName;
 
     property ImageName: string read GetImageName;
@@ -390,6 +407,7 @@ type
     property DetailTableCount: Integer read GetDetailTableCount;
     property DetailTables[I: Integer]: TKViewTable read GetDetailTable;
     function DetailTableByName(const AName: string): TKViewTable;
+    procedure AddDetailTable(const AViewTable: TKViewTable);
 
     property View: TKDataView read GetView;
 
@@ -439,6 +457,11 @@ type
     property MainTable: TKViewTable read GetMainTable;
   end;
 
+  TKFileReferenceDataType = class(TEFStringDataType)
+  public
+    class function GetTypeName: string; override;
+  end;
+
 implementation
 
 uses
@@ -476,6 +499,13 @@ begin
 end;
 
 { TKViewTable }
+
+procedure TKViewTable.AddDetailTable(const AViewTable: TKViewTable);
+begin
+  Assert(Assigned(AViewTable));
+
+  GetDetailTables.AddChild(AViewTable);
+end;
 
 function TKViewTable.ApplyFieldAliasedName(const AFieldName: string): string;
 var
@@ -526,6 +556,13 @@ begin
   end;
 end;
 
+procedure TKViewTable.BeforeSave;
+begin
+  inherited;
+  if DetailTableCount = 0 then
+    DeleteNode('DetailTables');
+end;
+
 function TKViewTable.CreateStore: TKViewTableStore;
 begin
   Result := TKViewTableStore.Create(Self);
@@ -571,7 +608,7 @@ end;
 
 function TKViewTable.GetModel: TKModel;
 begin
-  Result := TKConfig.Instance.Models.FindModel(ModelName);
+  Result := View.Catalog.Models.FindModel(ModelName);
 end;
 
 function TKViewTable.GetModelDetailReference: TKModelDetailReference;
@@ -579,7 +616,7 @@ begin
   Result := nil;
   if Assigned(MasterTable) then
   begin
-    Result := MasterTable.Model.FindDetailreferenceTo(Model);
+    Result := MasterTable.Model.FindDetailReferenceByModel(Model);
     if not Assigned(Result) and (ModelDetailReferenceName <> '') then
       Result := MasterTable.Model.FindDetailReference(ModelDetailReferenceName);
   end;
@@ -797,7 +834,7 @@ function TKViewTable.FindLayout(const AKind: string): TKLayout;
       Result := View.PersistentName
     else
     begin
-      Result := '';
+      Result := Model.ModelName;
       LMasterTable := MasterTable;
       while Assigned(LMasterTable) do
       begin
@@ -809,7 +846,7 @@ function TKViewTable.FindLayout(const AKind: string): TKLayout;
   end;
 
 begin
-  Result := TKConfig.Instance.Views.Layouts.FindLayout(GetViewTablePathName + '_' + AKind);
+  Result := View.Catalog.Layouts.FindLayout(GetViewTablePathName + '_' + AKind);
 end;
 
 function TKViewTable.GetDetailTable(I: Integer): TKViewTable;
@@ -979,7 +1016,7 @@ begin
       for LDerivedField in LDerivedFields do
         Result.Header.AddChild(LDerivedField.AliasedName).DataType := LDerivedField.DataType;
     // Get data.
-    LDBQuery := TKConfig.Instance.MainDBConnection.CreateDBQuery;
+    LDBQuery := TKConfig.Instance.DefaultDBConnection.CreateDBQuery;
     try
       TKSQLBuilder.BuildDerivedSelectQuery(Self, LDBQuery, AKeyValues);
       Result.Load(LDBQuery);
@@ -1015,6 +1052,11 @@ begin
     FreeAndNil(Result);
     raise;
   end;
+end;
+
+function TKViewField.FindModelField: TKModelField;
+begin
+  Result := Model.FindField(FieldName);
 end;
 
 function TKViewField.FindNode(const APath: string;
@@ -1088,7 +1130,7 @@ begin
     Result := inherited GetChildClass(AName);
 end;
 
-function TKViewField.GetQualifiedAliasedNameOrExpression: string;
+function TKViewField.GetQualifiedAliasedDBNameOrExpression: string;
 var
   LExpression: string;
 begin
@@ -1099,20 +1141,20 @@ begin
     Result := LExpression + ' ' + FieldName
   else
   begin
-    Result := QualifiedName;
+    Result := QualifiedDBName;
     if Alias <> '' then
       Result := Result + ' ' + Alias;
   end;
 end;
 
-function TKViewField.GetQualifiedNameOrExpression: string;
+function TKViewField.GetQualifiedDBNameOrExpression: string;
 begin
   if IsReference then
     Result := FieldName + '.' + ModelField.ReferencedModel.CaptionField.FieldNameOrExpression
   else if Expression <> '' then
     Result := Expression
   else
-    Result := QualifiedName;
+    Result := QualifiedDBName;
 end;
 
 function TKViewField.GetDataType: TEFDataType;
@@ -1180,6 +1222,17 @@ begin
     Result := ModelField.DisplayLabel;
 end;
 
+function TKViewField.GetDisplayTemplate: string;
+var
+  LNode: TEFNode;
+begin
+  LNode := FindNode('DisplayTemplate');
+  if LNode = nil then
+    Result := ModelField.GetString('DisplayTemplate')
+  else
+    Result := LNode.AsString;
+end;
+
 function TKViewField.GetDisplayWidth: Integer;
 begin
   Result := GetInteger('DisplayWidth');
@@ -1231,6 +1284,13 @@ begin
     Result := FieldName;
 end;
 
+function TKViewField.GetFileNameField: string;
+begin
+  Result := GetString('FileNameField');
+  if Result = '' then
+    Result := ModelField.FileNameField;
+end;
+
 function TKViewField.GetHint: string;
 begin
   Result := GetString('Hint');
@@ -1243,12 +1303,12 @@ begin
   Result := GetBoolean('IsVisible', True) and IsAccessGranted(ACM_VIEW);
 end;
 
-function TKViewField.GetQualifiedName: string;
+function TKViewField.GetQualifiedDBName: string;
 begin
   if Pos('.', Name) > 0 then
     Result := Name
   else
-    Result := GetModelName + '.' + GetFieldName;
+    Result := Model.DBTableName + '.' + ModelField.DBColumnName;
 end;
 
 function TKViewField.GetSize: Integer;
@@ -1354,8 +1414,10 @@ function TKViewTableStore.AppendRecord(
   const AValues: TEFNode): TKViewTableRecord;
 begin
   Result := inherited AppendRecord(AValues) as TKViewTableRecord;
-  if Assigned(FMasterRecord) then
-    Result.SetDetailFieldValues(FMasterRecord);
+  // The above will cause InternalAfterReadFromNode to be called.
+  // InternalAfterReadFromNode will call SetDetailFieldValues itself.
+  //if Assigned(FMasterRecord) then
+  //  Result.SetDetailFieldValues(FMasterRecord);
 end;
 
 constructor TKViewTableStore.Create(const AViewTable: TKViewTable);
@@ -1372,15 +1434,15 @@ var
   I: Integer;
 begin
   if AUseTransaction then
-    TKConfig.Instance.MainDBConnection.StartTransaction;
+    TKConfig.Instance.DefaultDBConnection.StartTransaction;
   try
     for I := 0 to RecordCount - 1 do
       Records[I].Save(False);
     if AUseTransaction then
-      TKConfig.Instance.MainDBConnection.CommitTransaction;
+      TKConfig.Instance.DefaultDBConnection.CommitTransaction;
   except
     if AUseTransaction then
-      TKConfig.Instance.MainDBConnection.RollbackTransaction;
+      TKConfig.Instance.DefaultDBConnection.RollbackTransaction;
     raise;
   end;
 end;
@@ -1438,7 +1500,7 @@ var
 begin
   Assert(Assigned(FViewTable));
 
-  LDBQuery := TKConfig.Instance.MainDBConnection.CreateDBQuery;
+  LDBQuery := TKConfig.Instance.DefaultDBConnection.CreateDBQuery;
   try
     TKSQLBuilder.BuildSelectQuery(FViewTable, AFilter, AOrderBy, LDBQuery, FMasterRecord);
     inherited Load(LDBQuery);
@@ -1459,7 +1521,7 @@ begin
   end
   else
   begin
-    LDBQuery := TKConfig.Instance.MainDBConnection.CreateDBQuery;
+    LDBQuery := TKConfig.Instance.DefaultDBConnection.CreateDBQuery;
     try
       TKSQLBuilder.BuildCountQuery(FViewTable, AFilter, LDBQuery, FMasterRecord);
       LDBQuery.Open;
@@ -1660,9 +1722,9 @@ begin
 
   // BEFORE rules are applied before calling this method.
   if AUseTransaction then
-    TKConfig.Instance.MainDBConnection.StartTransaction;
+    TKConfig.Instance.DefaultDBConnection.StartTransaction;
   try
-    LDBCommand := TKConfig.Instance.MainDBConnection.CreateDBCommand;
+    LDBCommand := TKConfig.Instance.DefaultDBConnection.CreateDBCommand;
     try
       case State of
         rsNew: TKSQLBuilder.BuildInsertCommand(Records.Store.ViewTable, LDBCommand, Self);
@@ -1679,14 +1741,14 @@ begin
         DetailStores[I].Save(False);
       ApplyAfterRules;
       if AUseTransaction then
-        TKConfig.Instance.MainDBConnection.CommitTransaction;
+        TKConfig.Instance.DefaultDBConnection.CommitTransaction;
       MarkAsClean;
     finally
       FreeAndNil(LDBCommand);
     end;
   except
     if AUseTransaction then
-      TKConfig.Instance.MainDBConnection.RollbackTransaction;
+      TKConfig.Instance.DefaultDBConnection.RollbackTransaction;
     raise;
   end;
 end;
@@ -1716,6 +1778,50 @@ end;
 
 { TKViewTableField }
 
+function TKViewTableField.GetAsJSONValue(const AForDisplay: Boolean): string;
+var
+  LDisplayTemplate: string;
+
+  function Unquote(const AString: string): string;
+  begin
+    if (Length(AString) >= 2) and (AString[1] = '"') and (AString[Length(AString)] = '"') then
+      Result := Copy(AString, 2, Length(AString) - 2)
+    else
+      Result := AString;
+  end;
+
+  function ReplaceFieldValues(const AString: string): string;
+  var
+    I: Integer;
+    LField: TKViewTableField;
+  begin
+    Result := AString;
+    for I := 0 to ViewField.Table.FieldCount - 1 do
+    begin
+      if ViewField.Table.Fields[I] <> ViewField then
+      begin
+        LField := ParentRecord.FindField(ViewField.Table.Fields[I].FieldName);
+        if Assigned(LField) then
+          Result := ReplaceText(Result, '{' + ViewField.Table.Fields[I].FieldName + '}',
+            Unquote(LField.GetAsJSONValue(True)));
+      end;
+    end;
+  end;
+
+begin
+  Result := inherited GetAsJSONValue(AForDisplay);
+  if AForDisplay and Assigned(ViewField) then
+  begin
+    LDisplayTemplate := ViewField.DisplayTemplate;
+    if LDisplayTemplate <> '' then
+    begin
+      // Replace other field values, this field's value and add back quotes.
+      Result := '"' + ReplaceFieldValues(
+        ReplaceText(LDisplayTemplate, '{value}', Unquote(Result))) + '"';
+    end;
+  end;
+end;
+
 function TKViewTableField.GetParentRecord: TKViewTableRecord;
 begin
   Result := inherited ParentRecord as TKViewTableRecord;
@@ -1723,13 +1829,22 @@ end;
 
 function TKViewTableField.GetViewField: TKViewField;
 begin
-  Result := ParentRecord.ViewTable.FieldByAliasedName(FieldName);
+  Result := ParentRecord.ViewTable.FindFieldByAliasedName(FieldName);
+end;
+
+{ TKFileReferenceDataType }
+
+class function TKFileReferenceDataType.GetTypeName: string;
+begin
+  Result := 'FileReference';
 end;
 
 initialization
   TKMetadataRegistry.Instance.RegisterClass('Data', TKDataView);
+  TEFDataTypeRegistry.Instance.RegisterClass(TKFileReferenceDataType.GetTypeName, TKFileReferenceDataType);
 
 finalization
   TKMetadataRegistry.Instance.UnregisterClass('Data');
+  TEFDataTypeRegistry.Instance.UnregisterClass(TKFileReferenceDataType.GetTypeName);
 
 end.

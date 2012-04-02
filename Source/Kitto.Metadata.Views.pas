@@ -58,6 +58,7 @@ type
   TKViews = class(TKMetadataCatalog)
   private
     FLayouts: TKLayouts;
+    FModels: TKModels;
     function GetLayouts: TKLayouts;
     function BuildView(const ANode: TEFNode;
       const AViewBuilderName: string): TKView;
@@ -67,6 +68,7 @@ type
     function GetObjectClassType: TKMetadataClass; override;
     procedure SetPath(const AValue: string); override;
   public
+    constructor Create(const AModels: TKModels);
     destructor Destroy; override;
   public
     property ViewCount: Integer read GetViewCount;
@@ -77,6 +79,7 @@ type
     function ViewByNode(const ANode: TEFNode): TKView;
     function FindViewByNode(const ANode: TEFNode): TKView;
 
+    property Models: TKModels read FModels;
     property Layouts: TKLayouts read GetLayouts;
     procedure Open; override;
     procedure Close; override;
@@ -138,8 +141,18 @@ type
   end;
 
   TKViewBuilder = class(TKMetadata)
+  strict private
+    FViews: TKViews;
+  private
+    FPersistentName: string;
+    FNode: TEFNode;
+  strict protected
+    property Views: TKViews read FViews;
+    property PersistentName: string read FPersistentName;
   public
-    function BuildView: TKView; virtual; abstract;
+    function BuildView(const AViews: TKViews;
+      const APersistentName: string = '';
+      const ANode: TEFNode = nil): TKView; virtual;
   end;
 
   TKViewBuilderClass = class of TKViewBuilder;
@@ -185,6 +198,12 @@ begin
     FLayouts.Close;
 end;
 
+constructor TKViews.Create(const AModels: TKModels);
+begin
+  inherited Create;
+  FModels := AModels;
+end;
+
 destructor TKViews.Destroy;
 begin
   FreeAndNil(FLayouts);
@@ -202,14 +221,18 @@ var
 begin
   if Assigned(ANode) then
   begin
-    LWords := Split(ANode.AsExpandedString);
-    if Length(LWords) >= 2 then
+    Result := FindNonpersistentObject(ANode) as TKView;
+    if not Assigned(Result) then
     begin
-      // Two words: the first one is the verb.
-      if SameText(LWords[0], 'Build') then
+      LWords := Split(ANode.AsExpandedString);
+      if Length(LWords) >= 2 then
       begin
-        Result := BuildView(ANode, LWords[1]);
-        Exit;
+        // Two words: the first one is the verb.
+        if SameText(LWords[0], 'Build') then
+        begin
+          Result := BuildView(ANode, LWords[1]);
+          Exit;
+        end;
       end;
     end;
   end;
@@ -226,7 +249,8 @@ begin
   LViewBuilder := TKViewBuilderFactory.Instance.CreateObject(AViewBuilderName);
   try
     LViewBuilder.Assign(ANode);
-    Result := LViewBuilder.BuildView;
+    Result := LViewBuilder.BuildView(Self, '', ANode);
+    AfterCreateObject(Result);
   finally
     FreeAndNil(LViewBuilder);
   end;
@@ -424,6 +448,20 @@ begin
   if FInstance = nil then
     FInstance := TKViewBuilderFactory.Create(TKViewBuilderRegistry.Instance);
   Result := FInstance;
+end;
+
+{ TKViewBuilder }
+
+function TKViewBuilder.BuildView(const AViews: TKViews;
+  const APersistentName: string; const ANode: TEFNode): TKView;
+begin
+  Assert(Assigned(AViews));
+  Assert(Assigned(AViews.Models));
+
+  FViews := AViews;
+  FPersistentName := APersistentName;
+  FNode := ANode;
+  Result := nil;
 end;
 
 initialization

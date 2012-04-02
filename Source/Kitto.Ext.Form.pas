@@ -311,7 +311,7 @@ procedure TKExtFormPanelController.GetRecord;
 begin
   Assert(Assigned(FStoreRecord));
 
-  Session.Response := '{success:true,data:' + FStoreRecord.GetAsJSON + '}';
+  Session.Response := '{success:true,data:' + FStoreRecord.GetAsJSON(False) + '}';
 end;
 
 procedure TKExtFormPanelController.SaveChanges;
@@ -333,9 +333,21 @@ begin
     // Get uploaded files.
     Session.EnumUploadedFiles(
       procedure (AFile: TKExtUploadedFile)
+      var
+        LFileNameField: string;
       begin
         if (AFile.Context is TKViewField) and (TKViewField(AFile.Context).Table = ViewTable) then
-          FStoreRecord.FieldByName(TKViewField(AFile.Context).AliasedName).AsBytes := AFile.Bytes;
+        begin
+          if TKViewField(AFile.Context).DataType is TEFBlobDataType then
+            FStoreRecord.FieldByName(TKViewField(AFile.Context).AliasedName).AsBytes := AFile.Bytes
+          else if TKViewField(AFile.Context).DataType is TKFileReferenceDataType then
+            FStoreRecord.FieldByName(TKViewField(AFile.Context).AliasedName).AsString := AFile.FileName
+          else
+            raise Exception.CreateFmt(_('Data type %s does not support file upload.'), [TKViewField(AFile.Context).DataType.GetTypeName]);
+          LFileNameField := TKViewField(AFile.Context).FileNameField;
+          if LFileNameField <> ''then
+            FStoreRecord.FieldByName(LFileNameField).AsString := AFile.OriginalFileName;
+        end;
       end);
 
     // Save record.
@@ -365,7 +377,7 @@ var
   LHostWindow: TExtWindow;
 begin
   inherited;
-  Title := ViewTable.DisplayLabel;
+  Title := _(ViewTable.DisplayLabel);
 
   FOperation := Config.GetString('Sys/Operation');
   if FOperation = '' then
@@ -388,8 +400,6 @@ begin
   if SameText(FOperation, 'Add') and FIsReadOnly then
     raise EEFError.Create(_('Operation Add not supported on read-only data.'));
 
-  ExtQuickTips.Init(True);
-
   if (ViewTable.DetailTableCount > 0) and SameText(GetDetailStyle, 'Tabs') then
   begin
     FTabPanel := TExtTabPanel.AddTo(Items);
@@ -398,7 +408,7 @@ begin
     FTabPanel.AutoScroll := False;
     FTabPanel.SetActiveTab(0);
     FFormPanel := TKExtEditPanel.AddTo(FTabPanel.Items);
-    FFormPanel.Title := ViewTable.DisplayLabel;
+    FFormPanel.Title := _(ViewTable.DisplayLabel);
   end
   else
   begin
@@ -477,7 +487,7 @@ begin
   FViewTable := AValue;
   if Assigned(FViewTable) then
   begin
-    Text := FViewTable.PluralDisplayLabel;
+    Text := _(FViewTable.PluralDisplayLabel);
     Icon := Session.Config.GetImageURL(FViewTable.ImageName);
     Handler := Ajax(ShowDetailWindow, []);
   end;
@@ -493,11 +503,10 @@ begin
     FDetailHostWindow.Free(True);
   FDetailHostWindow := TKExtModalWindow.Create;
 
-  FDetailHostWindow.Title := ViewTable.PluralDisplayLabel;
+  FDetailHostWindow.Title := _(ViewTable.PluralDisplayLabel);
   FDetailHostWindow.Closable := True;
 
   LController := TKExtControllerFactory.Instance.CreateController(FViewTable.View, FDetailHostWindow);
-  LController.OwnsView := False;
   LController.Config.SetObject('Sys/ServerStore', ServerStore);
   LController.Config.SetObject('Sys/ViewTable', ViewTable);
   LController.Config.SetObject('Sys/HostWindow', FDetailHostWindow);

@@ -34,17 +34,19 @@ type
     FFullFileName: string;
     FFileName: string;
     FStream: TBytesStream;
+    FOriginalFileName: string;
     function GetBytes: TBytes;
   public
-    constructor Create(const AFileName, AFullFileName: string; const AContext: TObject);
+    constructor Create(const AFileName, AFullFileName: string;
+      const AContext: TObject; const AOriginalFileName: string = '');
     destructor Destroy; override;
     property FileName: string read FFileName;
     property FullFileName: string read FFullFileName;
+    property OriginalFileName: string read FOriginalFileName;
     property Context: TObject read FContext;
 
     property Bytes: TBytes read GetBytes;
   end;
-
 
   TKExtSession = class(TExtThread)
   private
@@ -55,6 +57,7 @@ type
     FStatusHost: TKExtStatusBar;
     FSessionId: string;
     FUploadedFiles: TObjectList<TKExtUploadedFile>;
+    FOpenControllers: TObjectList<TObject>;
     procedure LoadLibraries;
     procedure DisplayHomeView;
     procedure DisplayLoginWindow;
@@ -62,6 +65,9 @@ type
     procedure ClearStatus;
     class constructor Create;
     class destructor Destroy;
+    function DisplayNewController(const AView: TKView): IKExtController;
+    function FindOpenController(const AView: TKView): IKExtController;
+    procedure SetViewHostActiveTab(const AObject: TObject);
   protected
     function BeforeHandleRequest: Boolean; override;
     procedure AfterHandleRequest; override;
@@ -130,6 +136,12 @@ type
 
     ///	<summary>Calls AProc for each uploaded file in list.</summary>
     procedure EnumUploadedFiles(const AProc: TProc<TKExtUploadedFile>);
+
+    ///	<summary>If the specified object is a controller and is found in the
+    ///	list of open controllers, it is removed from the list. Otherwise
+    ///	nothing happens. Used by view hosts to notify the session that a
+    ///	controller was closed.</summary>
+    procedure RemoveController(const AObject: TObject);
   published
     procedure Logout;
   end;
@@ -193,6 +205,7 @@ begin
   NilEFIntf(FHomeController);
   FreeAndNil(FConfig);
   FreeAndNil(FUploadedFiles);
+  FreeAndNil(FOpenControllers);
 end;
 
 class destructor TKExtSession.Destroy;
@@ -216,6 +229,7 @@ end;
 
 procedure TKExtSession.Home;
 begin
+  ExtQuickTips.Init(True);
   if not IsAjax then
     LoadLibraries;
 
@@ -253,7 +267,6 @@ end;
 
 procedure TKExtSession.Flash(const AMessage: string);
 begin
-  { TODO : move functionality into kitto-core.js. }
   JSCode('Ext.example.msg("' + _(Config.AppTitle) + '", "' + AMessage + '");');
 end;
 
@@ -267,13 +280,19 @@ procedure TKExtSession.LoadLibraries;
     SetLibrary(StripSuffix(LLibURL, '.js'), AIncludeCSS, False, True);
   end;
 
-  procedure SetOptionalLibrary(const ALibName: string);
+  procedure SetOptionalLibrary(const ALibName: string; const AIncludeCSS: Boolean = False);
   var
     LLibURL: string;
   begin
     LLibURL := Config.FindResourceURL(IncludeTrailingPathDelimiter('js') + ALibName + '.js');
     if LLibURL <> '' then
       SetLibrary(StripSuffix(LLibURL, '.js'), False, False, True);
+    if AIncludeCSS then
+    begin
+      LLibURL := Config.FindResourceURL(IncludeTrailingPathDelimiter('js') + ALibName + '.css');
+      if LLibURL <> '' then
+        SetCSS(StripSuffix(LLibURL, '.css'), False);
+    end;
   end;
 
 var
@@ -291,7 +310,7 @@ begin
   SetRequiredLibrary('DateTimeField');
   SetRequiredLibrary('DefaultButton');
   SetRequiredLibrary('kitto-core', True);
-  SetOptionalLibrary('application');
+  SetOptionalLibrary('application', True);
 
   LLibraries := Config.Config.GetStringArray('JavaScriptLibraries');
   for LLibName in LLibraries do
@@ -309,6 +328,11 @@ begin
   Response := Format('window.open("%s", "_blank");', [AURL]);
 end;
 
+procedure TKExtSession.RemoveController(const AObject: TObject);
+begin
+  FOpenControllers.Remove(AObject);
+end;
+
 procedure TKExtSession.RemoveUploadedFile(
   const AFileDescriptor: TKExtUploadedFile);
 begin
@@ -322,6 +346,34 @@ begin
   DisplayView(Config.Views.ViewByName(AName));
 end;
 
+function TKExtSession.DisplayNewController(const AView: TKView): IKExtController;
+begin
+  Assert(Assigned(AView));
+
+  Result := TKExtControllerFactory.Instance.CreateController(AView, FViewHost);
+  FOpenControllers.Add(Result.AsObject);
+  Result.Display;
+end;
+
+function TKExtSession.FindOpenController(const AView: TKView): IKExtController;
+var
+  I: Integer;
+begin
+  Assert(Assigned(AView));
+
+  Result := nil;
+  for I := 0 to FOpenControllers.Count - 1 do
+  begin
+    if Supports(FOpenControllers[I], IKExtController, Result) then
+    begin
+      if Result.View = AView then
+        Break
+      else
+        Result := nil;
+    end;
+  end;
+end;
+
 procedure TKExtSession.DisplayView(const AView: TKView);
 var
   LController: IKExtController;
@@ -331,11 +383,34 @@ begin
 
   if AView.IsAccessGranted(ACM_VIEW) then
   begin
-    LController := TKExtControllerFactory.Instance.CreateController(AView, FViewHost);
-    LController.Display;
-    if LController.SupportsContainer then
-      FViewHost.SetActiveTab(FViewHost.Items.Count - 1);
+    if AView.GetBoolean('Controller/AllowMultipleInstances') then
+      LController := DisplayNewController(AView)
+    else
+    begin
+      LController := FindOpenController(AView);
+      if not Assigned(LController) then
+        LController := DisplayNewController(AView);
+    end;
+    if LController.SupportsContainer and Assigned(FViewHost) then
+      SetViewHostActiveTab(LController.AsObject);
     ClearStatus;
+  end;
+end;
+
+procedure TKExtSession.SetViewHostActiveTab(const AObject: TObject);
+var
+  I: Integer;
+begin
+  Assert(Assigned(FViewHost));
+  Assert(Assigned(AObject));
+
+  for I := 0 to FViewHost.Items.Count - 1 do
+  begin
+    if FViewHost.Items[I] = AObject then
+    begin
+      FViewHost.SetActiveTab(I);
+      Break;
+    end;
   end;
 end;
 
@@ -403,6 +478,7 @@ constructor TKExtSession.Create(AOwner: TObject);
 begin
   inherited;
   FUploadedFiles := TObjectList<TKExtUploadedFile>.Create;
+  FOpenControllers := TObjectList<TObject>.Create(False);
 end;
 
 class constructor TKExtSession.Create;
@@ -449,13 +525,14 @@ end;
 
 { TKExtUploadedFile }
 
-constructor TKExtUploadedFile.Create(const AFileName,
-  AFullFileName: string; const AContext: TObject);
+constructor TKExtUploadedFile.Create(const AFileName, AFullFileName: string;
+  const AContext: TObject; const AOriginalFileName: string = '');
 begin
   inherited Create;
   FFileName := AFileName;
   FFullFileName := AFullFileName;
   FContext := AContext;
+  FOriginalFileName := AOriginalFileName;
 end;
 
 destructor TKExtUploadedFile.Destroy;

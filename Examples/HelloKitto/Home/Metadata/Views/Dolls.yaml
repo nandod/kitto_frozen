@@ -15,7 +15,6 @@ MainTable:
     Mom.Phone: Mom_Phone
       DisplayLabel: Mom's Phone
     Aspect:
-    Picture:
 
   Controller:
     AutoOpen: False

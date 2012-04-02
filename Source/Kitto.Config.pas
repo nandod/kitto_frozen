@@ -21,7 +21,7 @@ unit Kitto.Config;
 interface
 
 uses
-  SysUtils, Generics.Collections,
+  SysUtils, Types, Generics.Collections,
   EF.Tree, EF.Macros, EF.Classes, EF.DB,
   Kitto.Metadata.Models, Kitto.Metadata.Views, Kitto.Auth, Kitto.AccessControl;
 
@@ -30,10 +30,12 @@ type
 
   TKConfig = class;
 
+  TKConfigClass = class of TKConfig;
+
   TKGetConfig = reference to function: TKConfig;
 
   TKConfig = class(TEFComponent)
-  private
+  strict private
   class var
     FAppHomePath: string;
     FJSFormatSettings: TFormatSettings;
@@ -42,7 +44,7 @@ type
     FInstance: TKConfig;
     FResourcePathsURLs: TDictionary<string, string>;
     FSystemHomePath: string;
-    function GetMainDBName: string;
+    FConfigClass: TKConfigClass;
   var
     FDBConnections: TDictionary<string, TEFDBConnection>;
     FMacroExpansionEngine: TEFMacroExpansionEngine;
@@ -60,19 +62,20 @@ type
     class function GetSystemHomePath: string; static;
     class procedure SetSystemHomePath(const AValue: string); static;
 
+    function GetDBConnectionNames: TStringDynArray;
     function GetMultiFieldSeparator: string;
-    const MAIN_DB_NAME = 'Main';
     function GetAC: TKAccessController;
     function GetDBConnection(const ADatabaseName: string): TEFDBConnection;
     function GetAuthenticator: TKAuthenticator;
-    function GetMainDBConnection: TEFDBConnection;
+    function GetDefaultDBConnection: TEFDBConnection;
     function GetDBAdapter(const ADatabaseName: string): TEFDBAdapter;
     function GetMacroExpansionEngine: TEFMacroExpansionEngine;
     function GetAppTitle: string;
     function GetModels: TKModels;
     function GetViews: TKViews;
     procedure FinalizeDBConnections;
-  protected
+    function GetDefaultDBName: string;
+  strict protected
     function GetConfigFileName: string; override;
     class function FindSystemHomePath: string;
   public
@@ -81,7 +84,9 @@ type
     class constructor Create;
     class destructor Destroy;
   public
-   class property AppName: string read GetAppName;
+    class procedure SetConfigClass(const AValue: TKConfigClass);
+
+    class property AppName: string read GetAppName;
 
     ///	<summary>
     ///	  <para>Returns or changes the Application Home path.</para>
@@ -193,12 +198,25 @@ type
     ///	access.</summary>
     property Views: TKViews read GetViews;
 
-    ///	<summary>Gives access to the database connection, created on
-    ///	demand.</summary>
-    property MainDBConnection: TEFDBConnection read GetMainDBConnection;
+    ///	<summary>Returns the default DB name, which can be configured through
+    ///	the DefaultDatabaseName config property. Default is 'Main'.</summary>
+    property DefaultDBName: string read GetDefaultDBName;
 
-    ///	<summary>Returns True if the connection has been created.</summary>
-    function HasMainDBConnection: Boolean;
+    ///	<summary>Gives access to the default database connection, created on
+    ///	demand.</summary>
+    property DefaultDBConnection: TEFDBConnection read GetDefaultDBConnection;
+
+    ///	<summary>Returns True if the Main database connection has been created.
+    /// </summary>
+    function HasDefaultDBConnection: Boolean;
+
+    ///	<summary>Gives access to a database connection by name, created on
+    ///	demand.</summary>
+    property DBConnections[const AName: string]: TEFDBConnection read GetDBConnection;
+
+    ///	<summary>Returns the names of all defined database
+    ///	connections.</summary>
+    property DBConnectionNames: TStringDynArray read GetDBConnectionNames;
 
     ///	<summary>Returns the application title, to be used for captions, about
     ///	boxes, etc.</summary>
@@ -220,7 +238,7 @@ type
     ///	<summary>Calls AC.GetAccessGrantValue passing the current user and
     ///	returns the result.</summary>
     function GetAccessGrantValue(const AResourceURI, AMode: string;
-      const ADefaultValue: Variant): Variant;
+      const ADefaultValue: Variant): Variant; virtual;
 
     ///	<summary>Shortcut for GetAccessGrantValue for Boolean
     ///	values. Returns True if a value is granted and it equals
@@ -321,14 +339,9 @@ begin
   Result := GetAccessGrantValue(AResourceURI, AMode, Null) = ACV_TRUE;
 end;
 
-function TKConfig.GetMainDBConnection: TEFDBConnection;
+function TKConfig.GetDefaultDBConnection: TEFDBConnection;
 begin
-  Result := GetDBConnection(GetMainDBName);
-end;
-
-function TKConfig.GetMainDBName: string;
-begin
-  Result := MAIN_DB_NAME;
+  Result := GetDBConnection(GetDefaultDBName);
 end;
 
 function TKConfig.GetDBConnection(const ADatabaseName: string): TEFDBConnection;
@@ -346,6 +359,22 @@ begin
   end
   else
     Result := FDBConnections[ADatabaseName];
+end;
+
+function TKConfig.GetDBConnectionNames: TStringDynArray;
+var
+  LNode: TEFNode;
+begin
+  LNode := Config.FindNode('Databases');
+  if Assigned(LNode) then
+    Result := LNode.GetChildNames
+  else
+    Result := nil;
+end;
+
+function TKConfig.GetDefaultDBName: string;
+begin
+  Result := Config.GetExpandedString('DefaultDatabaseName', 'Main');
 end;
 
 function TKConfig.GetDBAdapter(const ADatabaseName: string): TEFDBAdapter;
@@ -446,16 +475,16 @@ function TKConfig.GetViews: TKViews;
 begin
   if not Assigned(FViews) then
   begin
-    FViews := TKViews.Create;
+    FViews := TKViews.Create(Models);
     FViews.Path := GetMetadataPath + 'Views';
     FViews.Open;
   end;
   Result := FViews;
 end;
 
-function TKConfig.HasMainDBConnection: Boolean;
+function TKConfig.HasDefaultDBConnection: Boolean;
 begin
-  Result := FDBConnections.ContainsKey(MAIN_DB_NAME);
+  Result := FDBConnections.ContainsKey(DefaultDBName);
 end;
 
 procedure TKConfig.CheckAccessGranted(const AResourceURI, AMode: string);
@@ -467,14 +496,15 @@ end;
 
 class constructor TKConfig.Create;
 begin
+  FConfigClass := TKConfig;
   FBaseConfigFileName := 'Config.yaml';
 
   FResourcePathsURLs := TDictionary<string, string>.Create;
   SetupResourcePathsURLs;
 
   FJSFormatSettings := GetFormatSettings;
-  FJSFormatSettings := GetFormatSettings;
   FJSFormatSettings.DecimalSeparator := '.';
+  FJSFormatSettings.ThousandSeparator := ',';
   FJSFormatSettings.ShortDateFormat := 'yyyy/mm/dd';
   FJSFormatSettings.ShortTimeFormat := 'hh:mm:ss';
   FJSFormatSettings.DateSeparator := '/';
@@ -576,7 +606,7 @@ begin
   if not Assigned(Result) then
   begin
     if not Assigned(FInstance) then
-      FInstance := TKConfig.Create;
+      FInstance := FConfigClass.Create;
     Result := FInstance;
   end;
 end;
@@ -588,6 +618,11 @@ begin
     FAppHomePath := AValue;
     SetupResourcePathsURLs;
   end;
+end;
+
+class procedure TKConfig.SetConfigClass(const AValue: TKConfigClass);
+begin
+  FConfigClass := AValue;
 end;
 
 class procedure TKConfig.SetSystemHomePath(const AValue: string);
@@ -645,7 +680,7 @@ var
   LName: string;
 begin
   Result := inherited InternalExpand(AString);
-  Result := ExpandMacros(Result, '%HOME_PATH%', TKConfig.GetAppHomePath);
+  Result := ExpandMacros(Result, '%HOME_PATH%', TKConfig.AppHomePath);
 
   LPosHead := Pos(IMAGE_MACRO_HEAD, Result);
   if LPosHead > 0 then
