@@ -25,7 +25,7 @@ uses
   ExtPascal, Ext,
   EF.Tree,
   Kitto.Ext.Base, Kitto.Ext.Controller, Kitto.Config, Kitto.Metadata.Views,
-  Kitto.Ext.Login;
+  Kitto.Metadata.DataView, Kitto.Ext.Login;
 
 type
   TKExtUploadedFile = class
@@ -63,8 +63,6 @@ type
     procedure DisplayLoginWindow;
     function GetConfig: TKConfig;
     procedure ClearStatus;
-    class constructor Create;
-    class destructor Destroy;
     function DisplayNewController(const AView: TKView): IKExtController;
     function FindOpenController(const AView: TKView): IKExtController;
     procedure SetViewHostActiveTab(const AObject: TObject);
@@ -75,6 +73,8 @@ type
   public
     constructor Create(AOwner: TObject); override;
     destructor Destroy; override;
+    class constructor Create;
+    class destructor Destroy;
   public
     ///	<summary>
     ///	  A reference to the panel to be used as the main view container.
@@ -142,6 +142,11 @@ type
     ///	nothing happens. Used by view hosts to notify the session that a
     ///	controller was closed.</summary>
     procedure RemoveController(const AObject: TObject);
+
+    ///	<summary>Finds and returns a record from the specified store using the
+    ///	key values currently stored in the session query strings.</summary>
+    function LocateRecordFromQueries(const AViewTable: TKViewTable;
+      const AServerStore: TKViewTableStore): TKViewTableRecord;
   published
     procedure Logout;
   end;
@@ -160,6 +165,30 @@ uses
 function Session: TKExtSession;
 begin
   Result := TKExtSession(CurrentWebSession);
+end;
+
+{ TKExtSession }
+
+function TKExtSession.LocateRecordFromQueries(const AViewTable: TKViewTable;
+  const AServerStore: TKViewTableStore): TKViewTableRecord;
+var
+  LKey: TEFNode;
+begin
+  Assert(Assigned(AViewTable));
+  Assert(Assigned(AServerStore));
+
+  LKey := TEFNode.Create;
+  try
+    LKey.Assign(AServerStore.Key);
+    LKey.SetChildValuesfromStrings(Queries, True, Config.JSFormatSettings,
+      function(const AName: string): string
+      begin
+        Result := AViewTable.FieldByName(AName).AliasedName;
+      end);
+    Result := AServerStore.Records.GetRecord(LKey);
+  finally
+    FreeAndNil(LKey);
+  end;
 end;
 
 function TKExtSession.GetConfig: TKConfig;
@@ -230,8 +259,12 @@ end;
 procedure TKExtSession.Home;
 begin
   ExtQuickTips.Init(True);
+
   if not IsAjax then
+  begin
     LoadLibraries;
+    JSCode('kittoInit();');
+  end;
 
   // Try authentication with default credentials, if any, and skip login
   // window if it succeeds.
@@ -310,6 +343,7 @@ begin
   SetRequiredLibrary('DateTimeField');
   SetRequiredLibrary('DefaultButton');
   SetRequiredLibrary('kitto-core', True);
+  SetRequiredLibrary('kitto-init');
   SetOptionalLibrary('application', True);
 
   LLibraries := Config.Config.GetStringArray('JavaScriptLibraries');

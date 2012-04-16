@@ -109,6 +109,7 @@ type
   TEFMemoDataType = class(TEFStringDataType)
   public
     function IsBlob(const ASize: Integer): Boolean; override;
+    class function HasSize: Boolean; override;
   end;
 
   TEFBlobDataType = class(TEFDataType)
@@ -118,7 +119,9 @@ type
     function IsBlob(const ASize: Integer): Boolean; override;
   end;
 
-  TEFDateDataType = class(TEFDataType)
+  TEFDateTimeDataTypeBase = class(TEFDataType);
+
+  TEFDateDataType = class(TEFDateTimeDataTypeBase)
   protected
     procedure InternalNodeToParam(const ANode: TEFNode; const AParam: TParam); override;
     procedure InternalFieldValueToNode(const AField: TField; const ANode: TEFNode); override;
@@ -132,7 +135,7 @@ type
     function GetJSTypeName: string; override;
   end;
 
-  TEFTimeDataType = class(TEFDataType)
+  TEFTimeDataType = class(TEFDateTimeDataTypeBase)
   protected
     procedure InternalNodeToParam(const ANode: TEFNode; const AParam: TParam); override;
     procedure InternalFieldValueToNode(const AField: TField; const ANode: TEFNode); override;
@@ -145,7 +148,7 @@ type
       const ANode: TEFNode; const AJSFormatSettings: TFormatSettings): string; override;
   end;
 
-  TEFDateTimeDataType = class(TEFDataType)
+  TEFDateTimeDataType = class(TEFDateTimeDataTypeBase)
   protected
     procedure InternalNodeToParam(const ANode: TEFNode; const AParam: TParam); override;
     procedure InternalFieldValueToNode(const AField: TField; const ANode: TEFNode); override;
@@ -324,6 +327,11 @@ type
     ///	  Finds a child node by name. Returns nil if not found.
     ///	</summary>
     function FindChild(const AName: string; const ACreateMissingNodes: Boolean = False): TEFNode;
+
+    ///	<summary>
+    ///	  Returns True if a child with the given name exists, and False otherwise.
+    ///	</summary>
+    function HasChild(const AName: string): Boolean;
 
     type
       ///	<summary>Type used by FindChildByPredicate.</summary>
@@ -1887,6 +1895,11 @@ begin
   Result := GetValue(APath, Null);
 end;
 
+function TEFTree.HasChild(const AName: string): Boolean;
+begin
+  Result := Assigned(FindChild(AName));
+end;
+
 function TEFTree.GetValue(const APath: string;
   const ADefaultValue: Variant): Variant;
 var
@@ -2645,7 +2658,7 @@ end;
 
 class function TEFCurrencyDataType.HasSize: Boolean;
 begin
-  Result := True;
+  Result := False;
 end;
 
 procedure TEFCurrencyDataType.InternalFieldValueToNode(const AField: TField;
@@ -2855,6 +2868,11 @@ begin
 end;
 
 { TEFMemoDataType }
+
+class function TEFMemoDataType.HasSize: Boolean;
+begin
+  Result := False;
+end;
 
 function TEFMemoDataType.IsBlob(const ASize: Integer): Boolean;
 begin

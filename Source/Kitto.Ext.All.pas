@@ -26,6 +26,7 @@ uses
   , Kitto.Ext.ChangePassword
   , Kitto.Ext.Filters
   , Kitto.Ext.Form
+  , Kitto.Ext.GridPanel
   , Kitto.Ext.HtmlPanel
   , Kitto.Ext.List
   , Kitto.Ext.Rules

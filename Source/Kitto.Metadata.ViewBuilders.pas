@@ -125,13 +125,14 @@ function TKAutoViewBuilderBase.BuildView(const AViews: TKViews;
   const APersistentName: string; const ANode: TEFNode): TKView;
 var
   LMainTable: TKViewTable;
-  LMainTableController: TEFNode;
+  //LMainTableController: TEFNode;
   LModel: TKModel;
   LFilters: TEFNode;
   LFilterItems: TEFNode;
   LSearchItem: TEFNode;
   LSourceControllerNode: TEFNode;
   LSourceMainTableControllerNode: TEFNode;
+  LControllerNode: TEFNode;
 begin
   inherited;
   LModel := GetModel;
@@ -149,25 +150,25 @@ begin
     if Assigned(LSourceControllerNode) then
       Result.AddChild(TEFNode.Clone(LSourceControllerNode));
     //Result.SetString('DisplayLabel', LModel.PluralDisplayLabel);
-    Result.SetString('Controller', GetControllerType);
+    LControllerNode := Result.SetString('Controller', GetControllerType);
 
     LMainTable := Result.AddChild(TKViewTable.Create('MainTable')) as TKViewTable;
     LMainTable.SetString('Model', LModel.ModelName);
     AddFields(LMainTable, LModel);
     AddDetailTables(LMainTable, LModel);
 
-    LSourceMainTableControllerNode := FindNode('MainTable/Controller');
-    if Assigned(LSourceMainTableControllerNode) then
-      LMainTableController := LMainTable.AddChild(TEFNode.Clone(LSourceMainTableControllerNode))
-    else
-      LMainTableController := LMainTable.AddChild('Controller');
-
-    LFilters := LMainTableController.AddChild('Filters');
+    LFilters := LControllerNode.AddChild('Filters');
     LFilters.SetString('DisplayLabel', _(Format('Search %s', [LModel.PluralDisplayLabel])));
     LFilterItems := LFilters.AddChild('Items');
     LSearchItem := LFilterItems.AddChild('FreeSearch', _('Free Search'));
     LSearchItem.SetString('ExpressionTemplate', BuildSearchString(
       LMainTable.ChildByName('Fields') as TKViewFields));
+
+    LSourceMainTableControllerNode := FindNode('MainTable/Controller');
+    if Assigned(LSourceMainTableControllerNode) then
+      {LMainTableController := }LMainTable.AddChild(TEFNode.Clone(LSourceMainTableControllerNode))
+    else
+      {LMainTableController := }LMainTable.AddChild('Controller');
   except
     if APersistentName <> '' then
       AViews.DeleteObject(Result)
