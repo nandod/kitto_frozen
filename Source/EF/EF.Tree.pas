@@ -328,6 +328,12 @@ type
     ///	</summary>
     function FindChild(const AName: string; const ACreateMissingNodes: Boolean = False): TEFNode;
 
+    ///	<summary>Finds a direct child with specified name and value and returns a
+    ///	reference to it, or nil if the node is not found.</summary>
+    ///	<param name="AName">Name of the child node to look for.</param>
+    ///	<param name="AValue">Value of the child node to look for.</param>
+    function FindChildByNameAndValue(const AName: string; const AValue: Variant): TEFNode;
+
     ///	<summary>
     ///	  Returns True if a child with the given name exists, and False otherwise.
     ///	</summary>
@@ -893,6 +899,11 @@ type
     function GetChildNames: TStringDynArray;
 
     ///	<summary>
+    ///	  Returns an array of references to all direct children of the node.
+    ///	</summary>
+    function ToArray: TArray<TEFNode>;
+
+    ///	<summary>
     ///	  Assigns a field's value to the node. May also change or set the
     ///	  node's datatype.
     ///	</summary>
@@ -1332,6 +1343,15 @@ begin
       Result[I] := Children[I].AsPair;
 end;
 
+function TEFNode.ToArray: TArray<TEFNode>;
+var
+  I: Integer;
+begin
+  SetLength(Result, ChildCount);
+  for I := 0 to ChildCount - 1 do
+    Result[I] := Children[I];
+end;
+
 function TEFNode.GetEnumerator: TEnumerator<TEFNode>;
 begin
   Result := FNodes.GetEnumerator;
@@ -1710,6 +1730,19 @@ begin
     end);
   if (Result = nil) and ACreateMissingNodes then
     Result := AddChild(AName, '');
+end;
+
+function TEFTree.FindChildByNameAndValue(const AName: string;
+  const AValue: Variant): TEFNode;
+var
+  LValue: Variant;
+begin
+  LValue := AValue; // works around "cannot capture symbol" error.
+  Result := FindChildByPredicate(
+    function (const ANode: TEFNode): Boolean
+    begin
+      Result := SameText(ANode.Name, AName) and (ANode.Value = LValue);
+    end);
 end;
 
 function TEFTree.FindChildByPredicate(const APredicate: TPredicate): TEFNode;

@@ -770,14 +770,17 @@ var
   I : integer;
   Thread : TFCGIThread;
 begin
-  for I := Threads.Count-1 downto 0 do begin
-    Thread := TFCGIThread(Threads.Objects[I]);
-    if (Now - Thread.LastAccess) > MaxIdleTime then begin
-      AccessThreads.Enter;
-      Thread.Free;
-      Threads.Delete(I);
-      AccessThreads.Leave;
+  AccessThreads.Enter;
+  try
+    for I := Threads.Count-1 downto 0 do begin
+      Thread := TFCGIThread(Threads.Objects[I]);
+      if (Now - Thread.LastAccess) > MaxIdleTime then begin
+        Thread.Free;
+        Threads.Delete(I);
+      end;
     end;
+  finally
+    AccessThreads.Leave;
   end;
 end;
 
