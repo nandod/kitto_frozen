@@ -295,14 +295,28 @@ type
     FDescriptionField: TExtFormTextField;
     FWindow: TKExtModalWindow;
     FDownloadButton: TExtButton;
+    FIsReadOnly: Boolean;
+    FClearButton: TExtButton;
+    FTotalWidth: Integer;
+    FPictureView: TExtPanel;
+    FImageWidth: Integer;
+    FImageHeight: Integer;
     function GetContentDescription: string;
+    procedure CreateGUI;
+    procedure UpdateGUI(const AUpdatePicture: Boolean);
+    procedure PictureViewAfterRender(This: TExtComponent);
   strict protected
     FRecordField: TKViewTableField;
     FLastUploadedFullFileName: string;
-    function GetCurrentFileName: string; virtual; abstract;
+    FLastUploadedOriginalFileName: string;
+    function GetCurrentServerFileName: string; virtual; abstract;
+    function GetCurrentClientFileName: string; virtual; abstract;
     function GetCurrentContentSize: Integer; virtual; abstract;
     procedure FileUploaded(const AFileName: string); virtual;
-    procedure DownloadFile(const AFileName: string); virtual; abstract;
+    procedure DownloadFile(const AServerFileName, AClientFileName: string); virtual; abstract;
+    procedure DownloadThumbnailedFile(const AServerFileName, AClientFileName: string); virtual; abstract;
+    procedure ClearContents; virtual;
+    procedure DownloadThumbnailedStream(const AStream: TStream; const AFileName: string);
   public
     function AsObject: TObject; inline;
     function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
@@ -313,34 +327,41 @@ type
     function AsExtFormField: TExtFormField; inline;
     function GetRecordField: TKViewTableField;
     procedure SetRecordField(const AValue: TKViewTableField);
-    destructor Destroy; override;
+    property IsReadOnly: Boolean read FIsReadOnly write FIsReadOnly;
+    property TotalWidth: Integer read FTotalWidth write FTotalWidth;
   published
     procedure ShowUploadFileDialog;
     procedure Upload;
+    procedure Clear;
     procedure PostUpload;
     procedure StartDownload;
     procedure DownloadFieldData;
+    procedure GetImage;
+    procedure GetImageContent;
   end;
 
   TKExtFormFileReferenceEditor = class(TKExtFormFileEditor)
-  strict
-  private
+  strict private
     function GetFieldPath: string;
-  private
-    function GetRecordFieldFileName: string;
   strict protected
-    procedure DownloadFile(const AFileName: string); override; protected
-    function GetCurrentFileName: string; override;
+    procedure ClearContents; override;
+    procedure DownloadFile(const AServerFileName, AClientFileName: string); override;
+    procedure DownloadThumbnailedFile(const AServerFileName, AClientFileName: string); override;
+    function GetCurrentServerFileName: string; override;
+    function GetCurrentClientFileName: string; override;
     function GetCurrentContentSize: Integer; override;
     procedure FileUploaded(const AFileName: string); override;
   end;
 
   TKExtFormFileBlobEditor = class(TKExtFormFileEditor)
   strict protected
-    function GetCurrentFileName: string; override;
+    procedure ClearContents; override;
+    function GetCurrentServerFileName: string; override;
+    function GetCurrentClientFileName: string; override;
     function GetCurrentContentSize: Integer; override;
     procedure FileUploaded(const AFileName: string); override;
-    procedure DownloadFile(const AFileName: string); override;
+    procedure DownloadFile(const AServerFileName, AClientFileName: string); override;
+    procedure DownloadThumbnailedFile(const AServerFileName, AClientFileName: string); override;
   end;
 
   TKExtLayoutDefaults = record
@@ -367,9 +388,9 @@ type
     FEditContainers: TStack<IKExtEditContainer>;
     FOnFieldChange: TExtFormFieldOnChange;
     FOnNewEditor: TProc<IKExtEditor>;
+    const TRIGGER_WIDTH = 4;
     function GetViewTable: TKViewTable;
     function DerivedFieldsExist(const AViewField: TKViewField): Boolean;
-    const TRIGGER_WIDTH = 4;
     function TryCreateCheckBox(const AViewField: TKViewField): IKExtEditor;
     function TryCreateDateField(const AViewField: TKViewField;
       const ARowField: TKExtFormRowField; const AFieldWidth: Integer;
@@ -439,7 +460,7 @@ type
 implementation
 
 uses
-  Types, Math, StrUtils, Windows,
+  Types, Math, StrUtils, Windows, Graphics, jpeg, pngimage,
   EF.SysUtils, EF.StrUtils, EF.Localization, EF.YAML, EF.Types, EF.SQL, EF.JSON,
   Kitto.SQL, Kitto.Metadata.Models, Kitto.Types, Kitto.AccessControl,
   Kitto.Rules, Kitto.Ext.Utils, Kitto.Ext.Session, Kitto.Ext.Rules;
@@ -900,11 +921,12 @@ begin
     else
       LFileEditor := TKExtFormFileReferenceEditor.Create;
     try
+      LFileEditor.IsReadOnly := AIsReadOnly;
       LFileEditor.FieldLabel := ALabel;
-//      if not Assigned(ARowField) then
-//        LFileEditor.Width := LFileEditor.CharsToPixels(AFieldWidth)
-//      else
-//        ARowField.CharWidth := AFieldWidth;
+      if not Assigned(ARowField) then
+        LFileEditor.TotalWidth := AFieldWidth
+      else
+        ARowField.CharWidth := AFieldWidth;
       Result := LFileEditor;
     except
       LFileEditor.Free;
@@ -1982,20 +2004,106 @@ begin
   Result := Self;
 end;
 
-destructor TKExtFormFileEditor.Destroy;
+procedure TKExtFormFileEditor.Clear;
 begin
-  //FreeAndNil(FWindow);
-  inherited;
+  ClearContents;
+  UpdateGUI(True);
+end;
+
+procedure TKExtFormFileEditor.ClearContents;
+begin
+  FLastUploadedFullFileName := '';
+  FLastUploadedOriginalFileName := '';
 end;
 
 procedure TKExtFormFileEditor.DownloadFieldData;
 var
-  LFileName: string;
+  LServerFileName: string;
 begin
   inherited;
-  LFileName := GetCurrentFileName;
-  if LFileName <> '' then
-    DownloadFile(LFileName);
+  LServerFileName := GetCurrentServerFileName;
+  if LServerFileName <> '' then
+    DownloadFile(LServerFileName, GetCurrentClientFileName);
+end;
+
+procedure TKExtFormFileEditor.DownloadThumbnailedStream(const AStream: TStream;
+  const AFileName: string);
+var
+  LFileExt: string;
+  LTempFileName: string;
+  LStream: TFileStream;
+
+  procedure WriteTempFile;
+  var
+    LFileStream: TFileStream;
+  begin
+    LFileStream := TFileStream.Create(LTempFileName, fmCreate);
+    try
+      AStream.Position := 0;
+      LFileStream.CopyFrom(AStream, AStream.Size);
+      AStream.Position := 0;
+    finally
+      FreeAndNil(LFileStream);
+    end;
+  end;
+
+  procedure TransformTempFileToThumbnail(const AMaxWidth, AMaxHeight: Integer;
+    const AImageClass: TGraphicClass);
+  var
+    LImage: TGraphic;
+    LScale: Extended;
+    LBitmap: TBitmap;
+  begin
+    LImage := AImageClass.Create;
+    try
+      LImage.LoadFromFile(LTempFileName);
+      if (LImage.Height <= AMaxHeight) and (LImage.Width <= AMaxWidth) then
+        Exit;
+      if LImage.Height > LImage.Width then
+        LScale := AMaxHeight / LImage.Height
+      else
+        LScale := AMaxWidth / LImage.Width;
+      LBitmap := TBitmap.Create;
+      try
+        LBitmap.Width := Round(LImage.Width * LScale);
+        LBitmap.Height := Round(LImage.Height * LScale);
+        LBitmap.Canvas.StretchDraw(LBitmap.Canvas.ClipRect, LImage);
+
+        LImage.Assign(LBitmap);
+        LImage.SaveToFile(LTempFileName);
+      finally
+        LBitmap.Free;
+      end;
+    finally
+      LImage.Free;
+    end;
+  end;
+
+begin
+  LFileExt := ExtractFileExt(AFileName);
+  if FRecordField.ViewField.GetBoolean('IsPicture') and MatchText(LFileExt, ['.jpg', '.jpeg', '.png']) then
+  begin
+    LTempFileName := GetTempFileName(LFileExt);
+    try
+      WriteTempFile;
+      if MatchText(LFileExt, ['.jpg', '.jpeg']) then
+        TransformTempFileToThumbnail(FImageWidth, FImageHeight, TJPEGImage)
+      else
+        TransformTempFileToThumbnail(FImageWidth, FImageHeight, TPngImage);
+
+      LStream := TFileStream.Create(LTempFileName, fmOpenRead + fmShareDenyWrite);
+      try
+        Session.DownloadStream(LStream, AFileName);
+      finally
+        FreeAndNil(LStream);
+      end;
+    finally
+      if FileExists(LTempFileName) then
+        DeleteFile(LTempFileName);
+    end;
+  end
+  else
+    Session.DownloadStream(AStream, AFileName);
 end;
 
 procedure TKExtFormFileEditor.FileUploaded(const AFileName: string);
@@ -2012,39 +2120,129 @@ begin
   if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
 end;
 
-procedure TKExtFormFileEditor.SetRecordField(const AValue: TKViewTableField);
+procedure TKExtFormFileEditor.PictureViewAfterRender(This: TExtComponent);
+begin
+  Assert(Assigned(FPictureView));
+
+  FPictureView.Load(JSObject(Format('url:"%s"', [MethodURI(GetImageContent)])));
+end;
+
+procedure TKExtFormFileEditor.CreateGUI;
 var
   LPanel: TExtPanel;
   LUploadButton: TExtButton;
+  LToolbar: TExtToolbar;
+  LButtonCount: Integer;
+  LIsPicture: Boolean;
+begin
+  Layout := lyForm;
+
+  LIsPicture := FRecordField.ViewField.GetBoolean('IsPicture');
+
+  LPanel := TExtPanel.AddTo(Items);
+  FImageWidth := FRecordField.ViewField.GetInteger('IsPicture/Thumbnail/Width', 100);
+  FImageHeight := FRecordField.ViewField.GetInteger('IsPicture/Thumbnail/Height', 100);
+
+  if LIsPicture then
+  begin
+    LPanel.Layout := lyColumn;
+    FPictureView := TExtPanel.AddTo(LPanel.Items);
+    FPictureView.Frame := True;
+    FPictureView.OnAfterrender := PictureViewAfterRender;
+
+    LToolbar := TExtToolbar.AddTo(LPanel.Items);
+    // Version below puts the toolbar at the bottom (in which case we should adjust the height as well)
+    //LToolbar := TExtToolbar.Create;
+    //FPictureView.Bbar := LToolbar;
+  end
+  else
+  begin
+    LPanel.Layout := lyHbox;
+    FDescriptionField := TExtFormTextField.AddTo(LPanel.Items);
+    FDescriptionField.ReadOnly := True;
+    FDescriptionField.Cls := 'x-form-readonly';
+
+    LToolbar := TExtToolbar.AddTo(LPanel.Items);
+  end;
+
+  LToolbar.Style := 'background: none; border: none;';
+
+  FDownloadButton := TExtButton.AddTo(LToolbar.Items);
+  FDownloadButton.Tooltip := _('Download file');
+  FDownloadButton.Icon := Session.Config.GetImageURL('download');
+  FDownloadButton.Handler := Ajax(StartDownload);
+
+  LButtonCount := 1;
+  if not FIsReadOnly then
+  begin
+    //FDownloadButton.Margins := '0 5 0 0';
+    LUploadButton := TExtButton.AddTo(LToolbar.Items);
+    LUploadButton.Tooltip := _('Upload file');
+    LUploadButton.Icon := Session.Config.GetImageURL('upload');
+    LUploadButton.Handler := Ajax(ShowUploadFileDialog);
+    //LUploadButton.Margins := '0 5 0 0';
+    Inc(LButtonCount);
+
+    FClearButton := TExtButton.AddTo(LToolbar.Items);
+    FClearButton.Tooltip := _('Clear field');
+    FClearButton.Icon := Session.Config.GetImageURL('clear');
+    FClearButton.Handler := Ajax(Clear);
+    Inc(LButtonCount);
+  end
+  else
+    FClearButton := nil;
+
+  if Assigned(FDescriptionField) then
+    // Keep 3 characters per button, leave the rest to the text field.
+    FDescriptionField.Width := CharsToPixels(FTotalWidth - (3 * LButtonCount))
+  else if Assigned(FPictureView) then
+  begin
+    if FPictureView.Frame then
+    begin
+      FPictureView.Width := FImageWidth + 10;
+      FPictureView.Height := FImageHeight + 10;
+    end
+    else
+    begin
+      FPictureView.Width := FImageWidth;
+      FPictureView.Height := FImageHeight;
+    end;
+  end;
+end;
+
+procedure TKExtFormFileEditor.SetRecordField(const AValue: TKViewTableField);
 begin
   Assert(Assigned(AValue));
 
   FRecordField := AValue;
+  CreateGUI;
+  UpdateGUI(False);
+end;
 
-  Layout := lyForm;
-
-  LPanel := TExtPanel.AddTo(Items);
-  LPanel.Layout := lyHbox;
-
-  FDescriptionField := TExtFormTextField.AddTo(LPanel.Items);
-  FDescriptionField.ReadOnly := True;
-  FDescriptionField.Cls := 'x-form-readonly';
-  FDescriptionField.Margins := '0 5 0 0';
-  if FRecordField.IsNull then
-    FDescriptionField.Value := _('Empty')
+procedure TKExtFormFileEditor.GetImageContent;
+begin
+  Session.ContentType := 'text/html';
+  if GetCurrentServerFileName = '' then
+    Session.Response := _('Empty')
   else
+    // Add dummy paraneter to the URL to force the browser to refresh the image
+    // after an upload.
+    Session.Response := Format('<img src="%s&time=%s">', [MethodURI(GetImage),
+      FormatDateTime('yyyymmddhhnnsszzz', Now())]);
+end;
+
+procedure TKExtFormFileEditor.UpdateGUI(const AUpdatePicture: Boolean);
+var
+  LIsEmpty: Boolean;
+begin
+  LIsEmpty := GetCurrentServerFileName = '';
+  if Assigned(FDescriptionField) then
     FDescriptionField.Value := GetContentDescription;
-  FDescriptionField.Width := 120;
-
-  FDownloadButton := TExtButton.AddTo(LPanel.Items);
-  FDownloadButton.Text := _('Download file');
-  FDownloadButton.Handler := Ajax(StartDownload);
-  FDownloadButton.Disabled := FRecordField.IsNull;
-  FDownloadButton.Margins := '0 5 0 0';
-
-  LUploadButton := TExtButton.AddTo(LPanel.Items);
-  LUploadButton.Text := _('Upload file');
-  LUploadButton.Handler := Ajax(ShowUploadFileDialog);
+  if AUpdatePicture and Assigned(FPictureView) then
+    PictureViewAfterRender(FPictureView);
+  FDownloadButton.SetDisabled(LIsEmpty);
+  if Assigned(FClearButton) then
+    FClearButton.SetDisabled(LIsEmpty);
 end;
 
 procedure TKExtFormFileEditor.SetOption(const AName, AValue: string);
@@ -2111,16 +2309,30 @@ function TKExtFormFileEditor.GetContentDescription: string;
 var
   LFileName: string;
 begin
-  LFileName := GetCurrentFileName;
-  Result := Format(_('%s file (%s)'),
-    [StripPrefix(ExtractFileExt(LFileName), '.'),
-    FormatByteSize(GetCurrentContentSize, Session.Config.UserFormatSettings)]);
+  LFileName := GetCurrentServerFileName;
+  if LFileName <> '' then
+    Result := Format(_('%s file (%s)'),
+      [StripPrefix(ExtractFileExt(LFileName), '.'),
+      FormatByteSize(GetCurrentContentSize, Session.Config.UserFormatSettings)])
+  else
+    Result := _('Empty');
+end;
+
+procedure TKExtFormFileEditor.GetImage;
+var
+  LFileName: string;
+begin
+  inherited;
+  LFileName := GetCurrentServerFileName;
+  if LFileName <> '' then
+    DownloadThumbnailedFile(LFileName,
+      IfThen(FLastUploadedOriginalFileName <> '', FLastUploadedOriginalFileName, ExtractFileName(LFileName)));
 end;
 
 procedure TKExtFormFileEditor.PostUpload;
 begin
   FWindow.Close;
-  FDescriptionField.SetValue(GetContentDescription);
+  UpdateGUI(True);
 end;
 
 function TKExtFormFileEditor._AddRef: Integer;
@@ -2135,12 +2347,14 @@ end;
 
 { TKExtFormFileBlobEditor }
 
-function TKExtFormFileBlobEditor.GetCurrentFileName: string;
+function TKExtFormFileBlobEditor.GetCurrentServerFileName: string;
 var
   LCaptionField: TKViewTableField;
 begin
   if FLastUploadedFullFileName <> '' then
     Result := FLastUploadedFullFileName
+  else if FRecordField.IsNull then
+    Result := ''
   else
   begin
     Result := FRecordField.ViewField.GetExpandedString('DefaultFileName');
@@ -2152,19 +2366,51 @@ begin
       else
         Result := FRecordField.FieldName;
     end;
-    if not FRecordField.IsNull then
-      Result := ChangeFileExt(Result, '.' + GetDataType(FRecordField.AsBytes, ExtractFileFormat(Result)));
+    Result := ChangeFileExt(Result, '.' + GetDataType(FRecordField.AsBytes, ExtractFileFormat(Result)));
   end;
 end;
 
-procedure TKExtFormFileBlobEditor.DownloadFile(const AFileName: string);
-var
-  LStream: TBytesStream;
+function TKExtFormFileBlobEditor.GetCurrentClientFileName: string;
+begin
+  Result := FLastUploadedOriginalFileName;
+  if Result = '' then
+    Result := ExtractFileName(GetCurrentServerFileName);
+end;
+
+procedure TKExtFormFileBlobEditor.ClearContents;
 begin
   inherited;
-  LStream := TBytesStream.Create(FRecordField.AsBytes);
+  FRecordField.SetToNull;
+end;
+
+procedure TKExtFormFileBlobEditor.DownloadFile(const AServerFileName, AClientFileName: string);
+var
+  LStream: TStream;
+begin
+  inherited;
+  if FileExists(AServerFileName) then
+    LStream := TFileStream.Create(AServerFileName, fmOpenRead + fmShareDenyWrite)
+  else if not FRecordField.IsNull then
+    LStream := TBytesStream.Create(FRecordField.AsBytes);
   try
-    Session.DownloadStream(LStream, AFileName);
+    Session.DownloadStream(LStream, AClientFileName);
+  finally
+    FreeAndNil(LStream);
+  end;
+end;
+
+procedure TKExtFormFileBlobEditor.DownloadThumbnailedFile(
+  const AServerFileName, AClientFileName: string);
+var
+  LStream: TStream;
+begin
+  inherited;
+  if FileExists(AServerFileName) then
+    LStream := TFileStream.Create(AServerFileName, fmOpenRead + fmShareDenyWrite)
+  else if not FrecordField.IsNull then
+    LStream := TBytesStream.Create(FRecordField.AsBytes);
+  try
+    DownloadThumbnailedStream(LStream, AClientFileName);
   finally
     FreeAndNil(LStream);
   end;
@@ -2173,10 +2419,12 @@ end;
 procedure TKExtFormFileBlobEditor.FileUploaded(const AFileName: string);
 begin
   inherited;
+  FLastUploadedOriginalFileName := ExtractFileName(AFileName);
   FLastUploadedFullFileName := GetUniqueFileName(ExtractFilePath(AFileName),
     ExtractFileExt(AFileName));
-  { TODO : copy instead of renaming if paths are on different disks }
-  RenameFile(AFileName, FLastUploadedFullFileName);
+  // Don't rename: move, since the files could be on different drives.
+  CopyFile(AFileName, FLastUploadedFullFileName);
+  DeleteFile(AFileName);
   Session.AddUploadedFile(TKExtUploadedFile.Create(
     Session.FileUploaded, FLastUploadedFullFileName, FRecordField.ViewField));
 end;
@@ -2191,11 +2439,6 @@ end;
 
 { TKExtFormFileReferenceEditor }
 
-function TKExtFormFileReferenceEditor.GetRecordFieldFileName: string;
-begin
-  Result := IncludeTrailingPathDelimiter(GetFieldPath) + FRecordField.AsString;
-end;
-
 function TKExtFormFileReferenceEditor.GetFieldPath: string;
 begin
   inherited;
@@ -2206,14 +2449,38 @@ begin
     raise Exception.CreateFmt('Directory %s not found field for file reference field %s.', [FRecordField.ViewField.FieldName]);
 end;
 
-procedure TKExtFormFileReferenceEditor.DownloadFile(const AFileName: string);
+procedure TKExtFormFileReferenceEditor.ClearContents;
+begin
+  inherited;
+  if FRecordField.AsString <> '' then
+  begin
+    FRecordField.SetString('Sys/DeleteFile', IncludeTrailingPathDelimiter(GetFieldPath) + FRecordField.AsString);
+    FRecordField.SetToNull;
+  end;
+end;
+
+procedure TKExtFormFileReferenceEditor.DownloadFile(const AServerFileName, AClientFileName: string);
 var
   LStream: TFileStream;
 begin
   inherited;
-  LStream := TFileStream.Create(GetRecordFieldFileName, fmOpenRead + fmShareDenyWrite);
+  LStream := TFileStream.Create(AServerFileName, fmOpenRead + fmShareDenyWrite);
   try
-    Session.DownloadStream(LStream, AFileName);
+    Session.DownloadStream(LStream, AClientFileName);
+  finally
+    FreeAndNil(LStream);
+  end;
+end;
+
+procedure TKExtFormFileReferenceEditor.DownloadThumbnailedFile(
+  const AServerFileName, AClientFileName: string);
+var
+  LStream: TFileStream;
+begin
+  inherited;
+  LStream := TFileStream.Create(AServerFileName, fmOpenRead + fmShareDenyWrite);
+  try
+    DownloadThumbnailedStream(LStream, AClientFileName);
   finally
     FreeAndNil(LStream);
   end;
@@ -2228,17 +2495,48 @@ begin
 
   Session.AddUploadedFile(TKExtUploadedFile.Create(ExtractFileName(FLastUploadedFullFileName),
     FLastUploadedFullFileName, FRecordField.ViewField, Session.FileUploaded));
+  FRecordField.DeleteNode('Sys/DeleteFile');
+end;
+
+function TKExtFormFileReferenceEditor.GetCurrentClientFileName: string;
+var
+  LFileNameField: string;
+  LCaptionField: TKViewTableField;
+begin
+  if FLastUploadedOriginalFileName <> '' then
+    Result := FLastUploadedOriginalFileName
+  else
+  begin
+    LFileNameField := FRecordField.ViewField.FileNameField;
+    if LFileNameField <> '' then
+      Result := FRecordField.ParentRecord.FieldByName(LFileNameField).AsString;
+    if Result = '' then
+    begin
+      Result := FRecordField.ViewField.GetExpandedString('DefaultFileName');
+      if Result = '' then
+      begin
+        LCaptionField := FRecordField.ParentRecord.FindField(FRecordField.ViewField.ModelField.Model.CaptionField.FieldName);
+        if Assigned(LCaptionField) then
+          Result := LCaptionField.AsString + ExtractFileExt(GetCurrentServerFileName)
+        else
+          Result := FRecordField.FieldName;
+      end;
+    end;
+  end;
 end;
 
 function TKExtFormFileReferenceEditor.GetCurrentContentSize: Integer;
+var
+  LFileName: string;
 begin
-  if FLastUploadedFullFileName <> '' then
-    Result := GetFileSize(FLastUploadedFullFileName)
+  LFileName := GetCurrentServerFileName;
+  if FileExists(LFileName) then
+    Result := GetFileSize(LFileName)
   else
-    Result := GetFileSize(GetRecordFieldFileName);
+    Result := 0;
 end;
 
-function TKExtFormFileReferenceEditor.GetCurrentFileName: string;
+function TKExtFormFileReferenceEditor.GetCurrentServerFileName: string;
 var
   LFileNameField: string;
 begin
@@ -2251,6 +2549,7 @@ begin
       Result := FRecordField.ParentRecord.FieldByName(LFileNameField).AsString;
     if Result = '' then
       Result := FRecordField.AsString;
+    Result := IncludeTrailingPathDelimiter(GetFieldPath) + Result;
   end;
 end;
 
