@@ -28,6 +28,8 @@ uses
   EF.Intf, EF.Types, EF.Tree, EF.ObserverIntf;
 
 type
+  TEFComponentConfig = class(TEFPersistentTree);
+
   ///	<summary>
   ///	  <para>
   ///	    Abstract class for configurable objects with logging and observer
@@ -44,8 +46,8 @@ type
   private
     FOnLog: TEFLogEvent;
     FLogLevel: Integer;
-    FConfig: TEFNode;
-    function GetConfig: TEFNode;
+    FConfig: TEFComponentConfig;
+    function GetConfig: TEFComponentConfig;
   public
     const DEFAULT_LOG_LEVEL = 1;
   protected
@@ -141,7 +143,7 @@ type
     ///	  An internal tree-like config object used to set values that affect
     ///	  the object's operations.
     ///	</summary>
-    property Config: TEFNode read GetConfig;
+    property Config: TEFComponentConfig read GetConfig;
 
     ///	<summary>Invalidates the internal config object so that it is
     ///	re-created at next access.</summary>
@@ -196,7 +198,7 @@ begin
   Result := InternalGetClassId;
 end;
 
-function TEFComponent.GetConfig: TEFNode;
+function TEFComponent.GetConfig: TEFComponentConfig;
 var
   LConfigFileName: string;
 begin
@@ -204,9 +206,12 @@ begin
   begin
     LConfigFileName := GetConfigFileName;
     if LConfigFileName <> '' then
-      FConfig := TEFTreeFactory.LoadFromFile<TEFNode>(LConfigFileName)
+    begin
+      FConfig := TEFTreeFactory.LoadFromFile<TEFComponentConfig>(LConfigFileName);
+      FConfig.PersistentName := LConfigFileName;
+    end
     else
-      FConfig := TEFNode.Create;
+      FConfig := TEFComponentConfig.Create;
   end;
   Result := FConfig;
 end;

@@ -49,6 +49,9 @@ type
     class function HasSize: Boolean; virtual;
     class function HasScale: Boolean; virtual;
 
+    class procedure SetNodeDataTypeAndValueFromYaml(const AYamlValue: string;
+      const ANode: TEFNode; const AFormatSettings: TFormatSettings);
+
     procedure FieldValueToNode(const AField: TField; const ANode: TEFNode);
     procedure NodeToParam(const ANode: TEFNode; const AParam: TParam);
     procedure YamlValueToNode(const AYamlValue: string; const ANode: TEFNode;
@@ -428,6 +431,12 @@ type
     function GetBoolean(const APath: string; const ADefaultValue: Boolean = False): Boolean;
 
     ///	<summary>
+    ///	  Finds a node by path and, if found, returns its value as a Double,
+    ///	  otherwise returns ADefaultValue.
+    ///	</summary>
+    function GetFloat(const APath: string; const ADefaultValue: Double = 0): Double;
+
+    ///	<summary>
     ///	  Finds a node by path and, if found, returns its value as an Integer,
     ///	  otherwise returns ADefaultValue.
     ///	</summary>
@@ -558,6 +567,18 @@ type
     ///	  Sets a node value by path. The node is created if it doesn't exist
     ///	  yet.
     ///	</summary>
+    function SetFloat(const APath: string; const AValue: Double): TEFNode;
+
+    ///	<summary>
+    ///	  Sets a node value by path. The node is created if it doesn't exist
+    ///	  yet.
+    ///	</summary>
+    function SetValue(const APath: string; const AValue: Variant): TEFNode;
+
+    ///	<summary>
+    ///	  Sets a node value by path. The node is created if it doesn't exist
+    ///	  yet.
+    ///	</summary>
     procedure SetObject(const APath: string; const AValue: TObject);
 
     ///	<summary>
@@ -591,6 +612,38 @@ type
     property Annotations[const AIndex: Integer]: string read GetAnnotation write SetAnnotation;
     function AddAnnotation(const AAnnotation: string): Integer;
     procedure AssignAnnotations(const AStrings: TStrings);
+
+    ///	<summary>Returns a string-based path.</summary>
+    ///	<remarks>Returns '' in the tree, and a slash-separated path in the
+    ///	nodes.</remarks>
+    function GetPath: string; virtual;
+
+    ///	<summary>
+    ///	  A reference to the root tree. In this class, returns Self.
+    ///	</summary>
+    property Root: TEFTree read GetRoot;
+
+  end;
+
+  TEFTreeClass = class of TEFTree;
+
+  ///	<summary>A tree that stores a file name (or other logical
+  ///	identifier).</summary>
+  TEFPersistentTree = class(TEFTree)
+  strict private
+    FPersistentName: string;
+    function GetIsPersistent: Boolean;
+  strict protected
+    function GetPersistentFileName: string; virtual;
+  public
+    procedure Assign(const ASource: TEFTree); override;
+
+    property PersistentName: string read FPersistentName write FPersistentName;
+
+    property IsPersistent: Boolean read GetIsPersistent;
+
+    ///	<summary>Returns the full path name of the persistent file.</summary>
+    property PersistentFileName: string read GetPersistentFileName;
   end;
 
   ///	<summary>
@@ -601,6 +654,7 @@ type
     FParent: TEFTree;
     function FindNodeFrom(const APath: TStringDynArray; const AIndex: Integer;
       const ACreateMissingNodes: Boolean = False): TEFNode;
+    function GetDataType: TEFDataType;
   strict private
     FValue: Variant;
     FName: string;
@@ -643,8 +697,8 @@ type
     function GetAsExpandedPair: TEFPair;
     function GetIsMultiLineValue: Boolean;
     function GetIsMultiLineWithNLValue: Boolean;
-  strict protected
     procedure SetName(const AValue: string);
+  strict protected
     function GetName: string; virtual;
     procedure SetValue(const AValue: Variant); virtual;
     function GetRoot: TEFTree; override;
@@ -671,11 +725,6 @@ type
     ///	  A reference to the parent node, if any.
     ///	</summary>
     property Parent: TEFTree read FParent;
-
-    ///	<summary>
-    ///	  A reference to the root tree, if any.
-    ///	</summary>
-    property Root: TEFTree read GetRoot;
 
     ///	<summary>
     ///	  Index of the node in the parent's list of node.
@@ -720,7 +769,7 @@ type
     ///	  Identifies the node among its siblings. Should be unique inside the
     ///	  parent.
     ///	</summary>
-    property Name: string read GetName;
+    property Name: string read GetName write SetName;
 
     ///	<summary>Renames the node. Normally shouldn't be used.</summary>
     procedure Rename(const ANewName: string);
@@ -729,7 +778,7 @@ type
     ///	  A reference to the node's data type. Should be an object managed by
     ///	  the data type factory.
     ///	</summary>
-    property DataType: TEFDataType read FDataType write SetDataType;
+    property DataType: TEFDataType read GetDataType write SetDataType;
 
     ///	<summary>Increments and returns the DataType lock count. When the
     ///	number is &gt; 0, assigning a value through the As... properties will
@@ -937,6 +986,10 @@ type
     ///	  set the param's data type.
     ///	</summary>
     procedure AssignToParam(const AParam: TParam);
+
+    ///	<summary>Returns the node's slash-separated path, up to the
+    ///	root.</summary>
+    function GetPath: string; override;
   end;
 
   ///	<summary>
@@ -1325,6 +1378,13 @@ begin
   Result := AStrings.Count;
 end;
 
+function TEFNode.GetDataType: TEFDataType;
+begin
+  if FDataType = nil then
+    FDataType := GetVariantDataType(Value);
+  Result := FDataType;
+end;
+
 function TEFNode.GetChildStrings(const ASeparator, AConnector,
   ADefaultValue: string): string;
 var
@@ -1423,6 +1483,14 @@ end;
 function TEFNode.GetName: string;
 begin
   Result := FName;
+end;
+
+function TEFNode.GetPath: string;
+begin
+  if Parent <> nil then
+    Result := SmartConcat(Parent.GetPath, '/', Name)
+  else
+    Result := Name;
 end;
 
 function TEFNode.GetRoot: TEFTree;
@@ -1944,6 +2012,11 @@ begin
     Result := ADefaultValue;
 end;
 
+function TEFTree.GetPath: string;
+begin
+  Result := '';
+end;
+
 function TEFTree.GetRoot: TEFTree;
 begin
   Result := Self;
@@ -1997,6 +2070,18 @@ end;
 function TEFTree.GetExpandedString(const APath, ADefaultValue: string): string;
 begin
   Result := TEFMacroExpansionEngine.Instance.Expand(GetString(APath, ADefaultValue));
+end;
+
+function TEFTree.GetFloat(const APath: string;
+  const ADefaultValue: Double): Double;
+var
+  LNode: TEFNode;
+begin
+  LNode := FindNode(APath);
+  if Assigned(LNode) then
+    Result := LNode.AsFloat
+  else
+    Result := ADefaultValue;
 end;
 
 function TEFTree.GetChildrenAsStrings(const APath, ASeparator, AConnector,
@@ -2143,6 +2228,12 @@ begin
   end;
 end;
 
+function TEFTree.SetFloat(const APath: string; const AValue: Double): TEFNode;
+begin
+  Result := GetNode(APath, True);
+  Result.AsFloat := AValue;
+end;
+
 procedure TEFTree.SetInteger(const APath: string; const AValue: Integer);
 begin
   GetNode(APath, True).AsInteger := AValue;
@@ -2157,6 +2248,13 @@ function TEFTree.SetString(const APath, AValue: string): TEFNode;
 begin
   Result := GetNode(APath, True);
   Result.AsString := AValue;
+end;
+
+function TEFTree.SetValue(const APath: string;
+  const AValue: Variant): TEFNode;
+begin
+  Result := GetNode(APath, True);
+  Result.Value := AValue;
 end;
 
 procedure TEFTree.EnterCS;
@@ -2291,6 +2389,12 @@ begin
 end;
 
 procedure TEFDataType.InternalYamlValueToNode(const AYamlValue: string;
+  const ANode: TEFNode; const AFormatSettings: TFormatSettings);
+begin
+  SetNodeDataTypeAndValueFromYaml(AYamlValue, ANode, AFormatSettings);
+end;
+
+class procedure TEFDataType.SetNodeDataTypeAndValueFromYaml(const AYamlValue: string;
   const ANode: TEFNode; const AFormatSettings: TFormatSettings);
 var
   LInteger: Integer;
@@ -2985,6 +3089,25 @@ end;
 function TEFBlobDataType.IsBlob(const ASize: Integer): Boolean;
 begin
   Result := True;
+end;
+
+{ TEFPersistentTree }
+
+function TEFPersistentTree.GetIsPersistent: Boolean;
+begin
+  Result := PersistentName <> '';
+end;
+
+function TEFPersistentTree.GetPersistentFileName: string;
+begin
+  Result := FPersistentName;
+end;
+
+procedure TEFPersistentTree.Assign(const ASource: TEFTree);
+begin
+  inherited;
+  if Assigned(ASource) and (ASource is TEFPersistentTree) then
+    FPersistentName := TEFPersistentTree(ASource).PersistentName;
 end;
 
 initialization
