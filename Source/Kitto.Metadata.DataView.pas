@@ -662,6 +662,19 @@ begin
     Result := inherited GetChildClass(AName);
 end;
 
+function TKViewTable.GetModelName: string;
+var
+  LModelNameNode: TEFNode;
+begin
+  LModelNameNode := FindNode('Model');
+  if Assigned(LModelNameNode) and (LModelNameNode.AsString <> '') then
+    Result := LModelNameNode.AsExpandedString
+  else if Assigned(MasterTable) and (ModelDetailReferenceName <> '') then
+    Result := MasterTable.Model.DetailReferenceByName(ModelDetailReferenceName).DetailModelName
+  else
+    Result := '';
+end;
+
 function TKViewTable.GetModel: TKModel;
 begin
   Result := View.Catalog.Models.ModelByName(ModelName);
@@ -920,11 +933,6 @@ end;
 function TKViewTable.GetDetailTable(I: Integer): TKViewTable;
 begin
   Result := GetDetailTables.GetChild<TKViewTable>(I);
-end;
-
-function TKViewTable.GetModelName: string;
-begin
-  Result := GetNode('Model', True).AsString;
 end;
 
 function TKViewTable.GetNamePath: TStringDynArray;
@@ -1510,10 +1518,11 @@ function TKViewTableStore.AppendRecord(
   const AValues: TEFNode): TKViewTableRecord;
 begin
   Result := inherited AppendRecord(AValues) as TKViewTableRecord;
-  // The above will cause InternalAfterReadFromNode to be called.
-  // InternalAfterReadFromNode will call SetDetailFieldValues itself.
-  //if Assigned(FMasterRecord) then
-  //  Result.SetDetailFieldValues(FMasterRecord);
+  // The above will cause InternalAfterReadFromNode to be called, which
+  // in turn will call SetDetailFieldValues itself, but only if there are
+  // actual values. Otherwise we must set default values explicitly.
+  if Assigned(FMasterRecord) and not Assigned(AValues) then
+    Result.SetDetailFieldValues(FMasterRecord);
 end;
 
 constructor TKViewTableStore.Create(const AViewTable: TKViewTable);
@@ -1838,9 +1847,12 @@ begin
       else
         raise EKError.CreateFmt('Unexpected record state %s.', [GetEnumName(TypeInfo(TKRecordState), Ord(State))]);
       end;
-      LRowsAffected := LDBCommand.Execute;
-      if LRowsAffected <> 1 then
-        raise EKError.CreateFmt('Update error. Rows affected: %d.', [LRowsAffected]);
+      if LDBCommand.CommandText <> '' then
+      begin
+        LRowsAffected := LDBCommand.Execute;
+        if LRowsAffected <> 1 then
+          raise EKError.CreateFmt('Update error. Rows affected: %d.', [LRowsAffected]);
+      end;
       { TODO : implement cascade delete? }
       for I := 0 to DetailStoreCount - 1 do
         DetailStores[I].Save(False);

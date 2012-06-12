@@ -52,6 +52,7 @@ type
 
   TKField = class(TEFNode)
   private
+    FIsModified: Boolean;
     function GetFieldName: string;
     function GetParentRecord: TKRecord;
     function GetJSONName: string;
@@ -59,8 +60,11 @@ type
     function GetName: string; override;
     procedure SetValue(const AValue: Variant); override;
     function GetAsJSONValue(const AForDisplay: Boolean): string; virtual;
+    procedure MarkAsUnmodified;
   public
     procedure SetToNull; override;
+
+    property IsModified: Boolean read FIsModified;
 
     property ParentRecord: TKRecord read GetParentRecord;
 
@@ -143,6 +147,7 @@ type
     function GetRecordByIndex(I: Integer): TKRecord;
     procedure SetKey(const AValue: TKKey);
     function GetStore: TKStore;
+    function GetRecordCountExceptDeleted: Integer;
   protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
   public
@@ -157,6 +162,7 @@ type
     function GetRecord(const AValues: TEFNode): TKRecord;
     property Records[I: Integer]: TKRecord read GetRecordByIndex; default;
     property RecordCount: Integer read GetRecordCount;
+    property RecordCountExceptDeleted: Integer read GetRecordCountExceptDeleted;
 
     function Append: TKRecord;
     procedure Remove(const ARecord: TKRecord);
@@ -201,6 +207,7 @@ type
     procedure SetKey(const AValue: TKKey);
     function GetRecordCount: Integer;
     function GetHeader: TKHeader;
+    function GetRecordCountExceptDeleted: Integer;
   protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
   public
@@ -210,6 +217,7 @@ type
     property Header: TKHeader read GetHeader;
     property Records: TKRecords read GetRecords;
     property RecordCount: Integer read GetRecordCount;
+    property RecordCountExceptDeleted: Integer read GetRecordCountExceptDeleted;
 
     procedure Load(const ADBConnection: TEFDBConnection;
       const ACommandText: string; const AAppend: Boolean = False); overload;
@@ -348,6 +356,11 @@ begin
   Result := Records.RecordCount;
 end;
 
+function TKStore.GetRecordCountExceptDeleted: Integer;
+begin
+  Result := Records.RecordCountExceptDeleted;
+end;
+
 function TKStore.GetRecords: TKRecords;
 begin
   Result := FindChild('Records', True) as TKRecords;
@@ -454,11 +467,14 @@ var
   I: Integer;
   LTo: Integer;
   LCount: Integer;
+  LRecordCount: Integer;
 begin
+  LRecordCount := RecordCountExceptDeleted;
+
   if AFor > 0 then
-    LTo := Min(RecordCount - 1, AFrom + AFor - 1)
+    LTo := Min(LRecordCount - 1, AFrom + AFor - 1)
   else
-    LTo := RecordCount - 1;
+    LTo := LRecordCount - 1;
 
   // Loop so that a full page is returned even when there are deleted records.
   Result := '';
@@ -494,6 +510,16 @@ end;
 function TKRecords.GetRecordCount: Integer;
 begin
   Result := ChildCount;
+end;
+
+function TKRecords.GetRecordCountExceptDeleted: Integer;
+var
+  I: Integer;
+begin
+  Result := ChildCount;
+  for I := 0 to RecordCount - 1 do
+    if Records[I].IsDeleted then
+      Dec(Result);
 end;
 
 function TKRecords.GetStore: TKStore;
@@ -729,7 +755,10 @@ begin
   Backup;
   try
     for I := 0 to FieldCount - 1 do
+    begin
       Fields[I].AssignFieldValue(AFields[I]);
+      Fields[I].MarkAsUnmodified;
+    end;
     FState := rsClean;
   except
     Restore;
@@ -787,7 +816,7 @@ end;
 
 function TKField.GetAsJSONValue(const AForDisplay: Boolean): string;
 begin
-  Result := DataType.NodeToJSONValue(AForDisplay, Self, TKConfig.Instance.JSFormatSettings);
+  Result := DataType.NodeToJSONValue(AForDisplay, Self, TKConfig.JSFormatSettings);
 end;
 
 function TKField.GetFieldName: string;
@@ -806,6 +835,11 @@ begin
   Result := Parent as TKRecord;
 end;
 
+procedure TKField.MarkAsUnmodified;
+begin
+  FIsModified := False;
+end;
+
 procedure TKField.SetToNull;
 begin
   if not VarIsNull(Value) then
@@ -818,8 +852,11 @@ begin
   { TODO : Find an efficient way to compare byte arrays; the <> operator won't do. }
   // Don't use <> on arrays.
   if VarIsArray(AValue) or (AValue <> Value) then
+  begin
+    FIsModified := True;
     if ParentRecord <> nil then
       ParentRecord.MarkAsModified;
+  end;
   inherited;
 end;
 

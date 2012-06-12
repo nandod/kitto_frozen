@@ -22,7 +22,7 @@ interface
 
 uses
   SysUtils, Types, Generics.Collections,
-  EF.Tree, EF.Macros, EF.Classes, EF.DB,
+  EF.Tree, EF.Macros, EF.Classes, EF.DB, EF.ObserverIntf,
   Kitto.Metadata.Models, Kitto.Metadata.Views, Kitto.Auth, Kitto.AccessControl;
 
 type
@@ -83,6 +83,8 @@ type
     destructor Destroy; override;
     class constructor Create;
     class destructor Destroy;
+    procedure UpdateObserver(const ASubject: IEFSubject;
+      const AContext: string = ''); override;
   public
     class procedure SetConfigClass(const AValue: TKConfigClass);
 
@@ -283,8 +285,20 @@ begin
   inherited;
   { TODO : read default user format settings from config and allow to change them on a per-user basis. }
   FUserFormatSettings := GetFormatSettings;
+
   FUserFormatSettings.ShortTimeFormat := Config.GetString('UserFormats/Time', FUserFormatSettings.ShortTimeFormat);
+  if Pos('.', FUserFormatSettings.ShortTimeFormat) > 0 then
+    FUserFormatSettings.TimeSeparator := '.'
+  else
+    FUserFormatSettings.TimeSeparator := ':';
+
   FUserFormatSettings.ShortDateFormat := Config.GetString('UserFormats/Date', FUserFormatSettings.ShortDateFormat);
+  if Pos('.', FUserFormatSettings.ShortDateFormat) > 0 then
+    FUserFormatSettings.DateSeparator := '.'
+  else if Pos('-', FUserFormatSettings.ShortDateFormat) > 0 then
+    FUserFormatSettings.DateSeparator := '-'
+  else
+    FUserFormatSettings.DateSeparator := '/';
 
   FDBConnections := TDictionary<string, TEFDBConnection>.Create;
   LLanguageId := Config.GetString('LanguageId');
@@ -316,6 +330,13 @@ begin
   LPath := FindSystemHomePath + 'Resources';
   if DirectoryExists(LPath) and not FResourcePathsURLs.ContainsKey(IncludeTrailingPathDelimiter(LPath)) then
     FResourcePathsURLs.Add(IncludeTrailingPathDelimiter(LPath), '/' + GetAppName + '-Kitto/');
+end;
+
+procedure TKConfig.UpdateObserver(const ASubject: IEFSubject;
+  const AContext: string);
+begin
+  inherited;
+  NotifyObservers(AContext);
 end;
 
 procedure TKConfig.FinalizeDBConnections;
@@ -404,6 +425,7 @@ begin
   if not Assigned(FModels) then
   begin
     FModels := TKModels.Create;
+    FModels.AttachObserver(Self);
     FModels.Path := GetMetadataPath + 'Models';
     FModels.Open;
   end;
@@ -477,6 +499,8 @@ begin
   if not Assigned(FViews) then
   begin
     FViews := TKViews.Create(Models);
+    FViews.AttachObserver(Self);
+    FViews.Layouts.AttachObserver(Self);
     FViews.Path := GetMetadataPath + 'Views';
     FViews.Open;
   end;
@@ -502,7 +526,7 @@ begin
   FJSFormatSettings.DecimalSeparator := '.';
   FJSFormatSettings.ThousandSeparator := ',';
   FJSFormatSettings.ShortDateFormat := 'yyyy/mm/dd';
-  FJSFormatSettings.ShortTimeFormat := 'hh:mm:ss';
+  FJSFormatSettings.ShortTimeFormat := 'hh:nn:ss';
   FJSFormatSettings.DateSeparator := '/';
   FJSFormatSettings.TimeSeparator := ':';
   TEFYAMLReader.FormatSettings := FJSFormatSettings;
