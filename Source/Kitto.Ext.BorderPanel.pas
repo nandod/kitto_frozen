@@ -30,6 +30,7 @@ type
   TKExtBorderPanelController = class(TKExtPanelControllerBase)
   private
     FControllers: array[TExtBoxComponentRegion] of TObject;
+    function GetRegionName(const ARegion: TExtBoxComponentRegion): string;
     function GetRegionViewNodeName(const ARegion: TExtBoxComponentRegion): string;
     function GetRegionControllerNodeName(const ARegion: TExtBoxComponentRegion): string;
     procedure CreateController(const ARegion: TExtBoxComponentRegion);
@@ -48,14 +49,19 @@ uses
 
 { TKExtBorderPanelController }
 
+function TKExtBorderPanelController.GetRegionName(const ARegion: TExtBoxComponentRegion): string;
+begin
+  Result := StripPrefix(GetEnumName(TypeInfo(TExtBoxComponentRegion), Ord(ARegion)), 'rg');
+end;
+
 function TKExtBorderPanelController.GetRegionViewNodeName(const ARegion: TExtBoxComponentRegion): string;
 begin
-  Result := StripPrefix(GetEnumName(TypeInfo(TExtBoxComponentRegion), Ord(ARegion)), 'rg') + 'View';
+  Result := GetRegionName(ARegion) + 'View';
 end;
 
 function TKExtBorderPanelController.GetRegionControllerNodeName(const ARegion: TExtBoxComponentRegion): string;
 begin
-  Result := StripPrefix(GetEnumName(TypeInfo(TExtBoxComponentRegion), Ord(ARegion)), 'rg') + 'Controller';
+  Result := GetRegionName(ARegion) + 'Controller';
 end;
 
 function TKExtBorderPanelController.GetRegionControllerConfig(
@@ -91,7 +97,7 @@ begin
     LSubView := Session.Config.Views.FindViewByNode(Config.FindNode(GetRegionViewNodeName(ARegion)));
   if LSubView <> nil then
   begin
-    FControllers[ARegion] := TKExtControllerFactory.Instance.CreateController(LSubView, Self, LControllerConfig).AsObject;
+    FControllers[ARegion] := TKExtControllerFactory.Instance.CreateController(Self, LSubView, Self, LControllerConfig).AsObject;
     Assert(FControllers[ARegion] is TExtBoxComponent);
     TExtBoxComponent(FControllers[ARegion]).Region := ARegion;
     if Supports(FControllers[ARegion], IKExtController, LIntf) then

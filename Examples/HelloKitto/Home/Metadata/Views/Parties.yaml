@@ -9,29 +9,39 @@ Controller: List
       FreeSearch: Name/Address
         ExpressionTemplate: >
           upper(PARTY.ADDRESS) like upper('%{value}%') 
-           or upper(PARTY.PARTY_NAME) like  
-          upper('%{value}%')
+          or upper(PARTY.PARTY_NAME) like upper('%{value}%')
 
 MainTable:
   Model: Party
 
   Controller:
     PopupWindow:
-      Width: 480
-      Height: 260
-
+      Height: 500
+      Width: 500
+    ToolViews:
+      DownloadCSV:
+        DisplayLabel: _(Download in CSV)
+        ImageName: download
+        Controller: ExportCSVTool
+          RequireSelection: False
+      DownloadExcel:
+        DisplayLabel: _(Download in Excel)
+        Controller: ExportExcelTool
+          ClientFileName: PartyList.xls
+          TemplateFileName: %APP_PATH%ReportTemplates\PartyList.xlt
+          RequireSelection: False
     Grouping:
       FieldName: Party_Period
-      # SortFieldName defaults to FieldName.
-      SortFieldName: Party_Period_Order
+      SortFieldNames: Party_Period_Order
       StartCollapsed: False
       ShowName: False
       ShowCount: True
 
   DetailTables:
     Controller:
-      # Tabs/Popup. Default = Tabs.
-      Style: Tabs
+      # Tabs/Popup/Bottom. Default = Tabs.
+      Style: Bottom
+        Height: 250
     Table:
       Model: Invitation
       Fields:
@@ -41,6 +51,9 @@ MainTable:
         Invitee:
         Accepted:
       Controller:
-        PopupWindow:
-          Width: 360
-          Height: 200
+        ToolViews:
+          DownloadCSV:
+            DisplayLabel: _(Download in CSV)
+            ImageName: download
+            Controller: ExportCSVTool
+              RequireSelection: False

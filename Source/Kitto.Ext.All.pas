@@ -24,16 +24,21 @@ uses
   Kitto.Ext.AccordionPanel
   , Kitto.Ext.BorderPanel
   , Kitto.Ext.ChangePassword
+  , Kitto.Ext.ChartPanel
   , Kitto.Ext.Filters
   , Kitto.Ext.Form
   , Kitto.Ext.GridPanel
   , Kitto.Ext.HtmlPanel
+  , Kitto.Ext.Login
   , Kitto.Ext.List
   , Kitto.Ext.Rules
   , Kitto.Ext.StandardControllers
   , Kitto.Ext.StatusBar
   , Kitto.Ext.TabPanel
+  , Kitto.Ext.TemplateDataPanel
   , Kitto.Ext.ToolBar
+  , Kitto.Ext.Tools
+  , Kitto.Ext.TilePanel
   , Kitto.Ext.TreePanel
   , Kitto.Ext.Viewport
   , Kitto.Ext.Window

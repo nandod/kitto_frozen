@@ -1,32 +1,36 @@
 ﻿Type: Data
 
 Controller: List
-  AllowClose: False
+  InplaceEditing: True
   Filters:
+    LabelWidth: 76
     DisplayLabel: Girls Filter
     Connector: and
     Items:
       ButtonList: Hair Color
         Items:
-          All: All
-            Expression: 1 = 1
-            IsDefault: True
-          Blond: Blond
+          Blond: _(Blond)
             Expression: HAIR.HAIR_COLOR = 'Blond'
-          Walnut: Walnut
+          Walnut: _(Walnut)
             Expression: HAIR.HAIR_COLOR = 'Walnut'
-          Black: Black
+          Black: _(Black)
             Expression: HAIR.HAIR_COLOR = 'Black'
-          Silver: Silver
+          Silver: _(Silver)
             Expression: HAIR.HAIR_COLOR = 'Silver'
-          Red: Red
+          Red: _(Red)
             Expression: HAIR.HAIR_COLOR = 'Red'
+          Platinum: _(Platinum)
+            Expression: HAIR.HAIR_COLOR = 'Platinum'
 
 MainTable:
   Model: Girl
+  Fields:
+    Girl_Id:
+      IsVisible: False
+    Girl_Name:
+    Age:
+    Phone:
+    Hair:
 
   Controller:
-
-    PopupWindow:
-      Width: 460
-      Height: 230
+    RowClassProvider: function (record) { return getAgeClass(record.get('Age')); }

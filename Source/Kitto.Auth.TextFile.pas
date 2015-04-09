@@ -31,6 +31,9 @@ uses
   EF.Tree,
   Kitto.Auth;
 
+const
+  DEFAULT_USERLIST_FILENAME = '%HOME_PATH%FileAuthenticator.txt';
+
 type
   ///	<summary>
   ///	  <para>The TextFile authenticator uses an external text file to
@@ -111,7 +114,7 @@ end;
 
 function TKTextFileAuthenticator.GetUserListFileName: string;
 begin
-  Result := Config.GetExpandedString('FileName', '%HOME_PATH%\FileAuthenticator.txt');
+  Result := Config.GetExpandedString('FileName', DEFAULT_USERLIST_FILENAME);
 end;
 
 function  TKTextFileAuthenticator.InternalAuthenticate(
@@ -130,11 +133,16 @@ begin
   LUserName := TKConfig.Instance.MacroExpansionEngine.Expand(
     AAuthData.GetString('UserName'));
 
-  RefreshUserList(FUserList);
+  if LUserName <> '' then
+  begin
+    RefreshUserList(FUserList);
 
-  LStoredPasswordHash := FUserList.Values[LUserName];
+    LStoredPasswordHash := FUserList.Values[LUserName];
 
-  Result := LSuppliedPasswordHash = LStoredPasswordHash;
+    Result := LSuppliedPasswordHash = LStoredPasswordHash;
+  end
+  else
+    Result := False;
 end;
 
 procedure TKTextFileAuthenticator.RefreshUserList(const AUserList: TStrings);

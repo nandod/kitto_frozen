@@ -36,15 +36,19 @@ type
     const DEFAULT_IMAGE_NAME = 'default_view';
     function GetDisplayLabel: string; virtual;
     function GetImageName: string; virtual;
+    function GetDefaultImageName: string; virtual;
     class function GetClassNameForResourceURI: string; override;
   public
     property Catalog: TKViews read GetCatalog;
 
     property DisplayLabel: string read GetDisplayLabel;
+    property DefaultImageName: string read GetDefaultImageName;
     property ImageName: string read GetImageName;
 
     property ControllerType: string read GetControllerType;
   end;
+
+  TKViewClass = class of TKView;
 
   TKViewList = class(TList<TKView>)
   public
@@ -56,13 +60,18 @@ type
   TKLayout = class(TKMetadata)
   private
     FLayouts: TKLayouts;
+  public
+    function IsGridLayout: Boolean;
+    function IsFormLayout: Boolean;
   end;
+
+  TKLayoutClass = class of TKLayout;
 
   ///	<summary>
   ///	  A catalog of views.
   ///	</summary>
   TKViews = class(TKMetadataCatalog)
-  private
+  strict private
     FLayouts: TKLayouts;
     FModels: TKModels;
     function GetLayouts: TKLayouts;
@@ -70,16 +79,18 @@ type
       const AViewBuilderName: string): TKView;
     function GetView(I: Integer): TKView;
     function GetViewCount: Integer;
-  protected
+  strict protected
     function GetObjectClassType: TKMetadataClass; override;
     procedure SetPath(const AValue: string); override;
+    function GetMetadataRegistry: TKMetadataRegistry; override;
   public
     constructor Create(const AModels: TKModels);
     destructor Destroy; override;
   public
     property ViewCount: Integer read GetViewCount;
     property Views[I: Integer]: TKView read GetView; default;
-    function ViewByName(const AName: string): TKView;
+    function ViewByName(const AName: string): TKView; overload;
+    function ViewByName(const ANames: TStringDynArray): TKView; overload;
     function FindView(const AName: string): TKView;
 
     function ViewByNode(const ANode: TEFNode): TKView;
@@ -95,17 +106,21 @@ type
   ///	  A catalog of layouts. Internally used by the catalog of views.
   ///	</summary>
   TKLayouts = class(TKMetadataCatalog)
-  private
+  strict private
     function GetLayout(I: Integer): TKLayout;
     function GetLayoutCount: Integer;
-  protected
+  strict protected
     procedure AfterCreateObject(const AObject: TKMetadata); override;
     function GetObjectClassType: TKMetadataClass; override;
+    function GetMetadataRegistry: TKMetadataRegistry; override;
   public
     property LayoutCount: Integer read GetLayoutCount;
     property Layouts[I: Integer]: TKLayout read GetLayout; default;
     function LayoutByName(const AName: string): TKLayout;
     function FindLayout(const AName: string): TKLayout;
+
+    function LayoutByNode(const ANode: TEFNode): TKLayout;
+    function FindLayoutByNode(const ANode: TEFNode): TKLayout;
   end;
 
   ///	<summary>
@@ -125,15 +140,20 @@ type
   public
     property TreeViewNodeCount: Integer read GetTreeViewNodeCount;
     property TreeViewNodes[I: Integer]: TKTreeViewNode read GetTreeViewNode;
+
+    function FindView(const AViews: TKViews): TKView; virtual;
   end;
 
-  ///	<summary>A node in a tree view that is a folder (i.e. contains other
-  ///	nodes and doesn't represent a view).</summary>
+  ///	<summary>
+  ///   A node in a tree view that is a folder (i.e. contains other
+  ///	  nodes and doesn't represent a view).
+  /// </summary>
   TKTreeViewFolder = class(TKTreeViewNode)
   private
     function GetIsInitiallyCollapsed: Boolean;
   public
     property IsInitiallyCollapsed: Boolean read GetIsInitiallyCollapsed;
+    function FindView(const AViews: TKViews): TKView; override;
   end;
 
   ///	<summary>
@@ -149,6 +169,18 @@ type
   public
     property TreeViewNodeCount: Integer read GetTreeViewNodeCount;
     property TreeViewNodes[I: Integer]: TKTreeViewNode read GetTreeViewNode;
+  end;
+
+  TKViewRegistry = class(TKMetadataRegistry)
+  strict private
+    class var FInstance: TKViewRegistry;
+    class function GetInstance: TKViewRegistry; static;
+  strict protected
+    procedure BeforeRegisterClass(const AId: string; const AClass: TClass); override;
+    class destructor Destroy;
+  public
+    class property Instance: TKViewRegistry read GetInstance;
+    function GetClass(const AId1, AId2: string): TKViewClass;
   end;
 
   TKViewBuilder = class(TKMetadata)
@@ -193,11 +225,23 @@ type
     function CreateObject(const AId: string): TKViewBuilder; reintroduce;
   end;
 
+  TKLayoutRegistry = class(TKMetadataRegistry)
+  strict private
+    class var FInstance: TKLayoutRegistry;
+    class function GetInstance: TKLayoutRegistry; static;
+  strict protected
+    procedure BeforeRegisterClass(const AId: string; const AClass: TClass); override;
+    class destructor Destroy;
+  public
+    class property Instance: TKLayoutRegistry read GetInstance;
+    function GetClass(const AId1, AId2: string): TKLayoutClass;
+  end;
+
 implementation
 
 uses
   SysUtils, StrUtils, Variants, TypInfo,
-  EF.DB, EF.StrUtils,
+  EF.DB, EF.StrUtils, EF.Localization,
   Kitto.Types, Kitto.Config, Kitto.SQL;
 
 { TKViews }
@@ -274,6 +318,11 @@ begin
   Result := FLayouts;
 end;
 
+function TKViews.GetMetadataRegistry: TKMetadataRegistry;
+begin
+  Result := TKViewRegistry.Instance;
+end;
+
 function TKViews.GetObjectClassType: TKMetadataClass;
 begin
   Result := TKView;
@@ -306,6 +355,11 @@ begin
   Result := ObjectByName(AName) as TKView;
 end;
 
+function TKViews.ViewByName(const ANames: TStringDynArray): TKView;
+begin
+  Result := ObjectByName(ANames) as TKView;
+end;
+
 function TKViews.ViewByNode(const ANode: TEFNode): TKView;
 begin
   Result := FindViewByNode(ANode);
@@ -321,12 +375,18 @@ end;
 procedure TKLayouts.AfterCreateObject(const AObject: TKMetadata);
 begin
   inherited;
-  (AObject as TKLayout).FLayouts := Self;
+  if AObject is TKLayout then
+    TKLayout(AObject).FLayouts := Self;
 end;
 
 function TKLayouts.FindLayout(const AName: string): TKLayout;
 begin
   Result := FindObject(AName) as TKLayout;
+end;
+
+function TKLayouts.FindLayoutByNode(const ANode: TEFNode): TKLayout;
+begin
+  Result := FindObjectByNode(ANode) as TKLayout;
 end;
 
 function TKLayouts.GetLayout(I: Integer): TKLayout;
@@ -339,6 +399,11 @@ begin
   Result := ObjectCount;
 end;
 
+function TKLayouts.GetMetadataRegistry: TKMetadataRegistry;
+begin
+  Result := TKLayoutRegistry.Instance;
+end;
+
 function TKLayouts.GetObjectClassType: TKMetadataClass;
 begin
   Result := TKLayout;
@@ -347,6 +412,11 @@ end;
 function TKLayouts.LayoutByName(const AName: string): TKLayout;
 begin
   Result := ObjectByName(AName) as TKLayout;
+end;
+
+function TKLayouts.LayoutByNode(const ANode: TEFNode): TKLayout;
+begin
+  Result := ObjectByNode(ANode) as TKLayout;
 end;
 
 { TKView }
@@ -367,6 +437,11 @@ begin
   Result := GetExpandedString('Controller');
 end;
 
+function TKView.GetDefaultImageName: string;
+begin
+  Result := DEFAULT_IMAGE_NAME;
+end;
+
 function TKView.GetDisplayLabel: string;
 begin
   Result := GetString('DisplayLabel');
@@ -376,10 +451,17 @@ function TKView.GetImageName: string;
 begin
   Result := GetString('ImageName');
   if Result = '' then
-    Result := DEFAULT_IMAGE_NAME;
+    Result := GetDefaultImageName;
 end;
 
 { TKTreeViewNode }
+
+function TKTreeViewNode.FindView(const AViews: TKViews): TKView;
+begin
+  Assert(Assigned(AViews));
+
+  Result := AViews.ViewByNode(Self);
+end;
 
 function TKTreeViewNode.GetChildClass(const AName: string): TEFNodeClass;
 begin
@@ -493,15 +575,86 @@ end;
 
 { TKTreeViewFolder }
 
+function TKTreeViewFolder.FindView(const AViews: TKViews): TKView;
+begin
+  Result := nil; // No view available for folders.
+end;
+
 function TKTreeViewFolder.GetIsInitiallyCollapsed: Boolean;
 begin
   Result := GetBoolean('IsInitiallyCollapsed', False);
 end;
 
+{ TKViewRegistry }
+
+procedure TKViewRegistry.BeforeRegisterClass(const AId: string;
+  const AClass: TClass);
+begin
+  inherited;
+  if not AClass.InheritsFrom(TKView) then
+    raise EKError.CreateFmt('Cannot register class %s (Id %s). Class is not a %s subclass.', [AClass.ClassName, AId, TKView.ClassName]);
+end;
+
+class destructor TKViewRegistry.Destroy;
+begin
+  FreeAndNil(FInstance);
+end;
+
+function TKViewRegistry.GetClass(const AId1, AId2: string): TKViewClass;
+begin
+  Result := TKViewClass(inherited GetClass(AId1, AId2));
+end;
+
+class function TKViewRegistry.GetInstance: TKViewRegistry;
+begin
+  if FInstance = nil then
+    FInstance := TKViewRegistry.Create;
+  Result := FInstance;
+end;
+
+{ TKLayoutRegistry }
+
+procedure TKLayoutRegistry.BeforeRegisterClass(const AId: string;
+  const AClass: TClass);
+begin
+  inherited;
+  if not AClass.InheritsFrom(TKLayout) then
+    raise EKError.CreateFmt('Cannot register class %s (Id %s). Class is not a %s subclass.', [AClass.ClassName, AId, TKLayout.ClassName]);
+end;
+
+class destructor TKLayoutRegistry.Destroy;
+begin
+  FreeAndNil(FInstance);
+end;
+
+function TKLayoutRegistry.GetClass(const AId1, AId2: string): TKLayoutClass;
+begin
+  Result := TKLayoutClass(inherited GetClass(AId1, AId2));
+end;
+
+class function TKLayoutRegistry.GetInstance: TKLayoutRegistry;
+begin
+  if FInstance = nil then
+    FInstance := TKLayoutRegistry.Create;
+  Result := FInstance;
+end;
+
+{ TKLayout }
+
+function TKLayout.IsFormLayout: Boolean;
+begin
+  Result := SameText(Copy(PersistentName, Length(PersistentName)-4,5), '_Form');
+end;
+
+function TKLayout.IsGridLayout: Boolean;
+begin
+  Result := SameText(Copy(PersistentName, Length(PersistentName)-4,5), '_Grid');
+end;
+
 initialization
-  TKMetadataRegistry.Instance.RegisterClass('Tree', TKTreeView);
+  TKViewRegistry.Instance.RegisterClass(TKMetadata.SYS_PREFIX + 'Tree', TKTreeView);
 
 finalization
-  TKMetadataRegistry.Instance.UnregisterClass('Tree');
+  TKViewRegistry.Instance.UnregisterClass(TKMetadata.SYS_PREFIX + 'Tree');
 
 end.

@@ -167,6 +167,17 @@ procedure AppendStringToTextFile(const AString, AFileName: string;
   const AEncoding: TEncoding = nil);
 
 ///	<summary>
+///	  Turns the first character of each word in AString to upper case, and each
+///   other character to lower case. Words are separated by spaces.
+///	</summary>
+function Camelize(const AString: string): string;
+
+///	<summary>
+///	  Converts 'THIS_IS_A_STRING' to 'THIS IS A STRING'.
+///	</summary>
+function UpperUnderscoreToSpaced(const AString: string): string;
+
+///	<summary>
 ///	  Converts 'THIS_IS_A_STRING' to 'ThisIsAString'.
 ///	</summary>
 function UpperUnderscoreToCamel(const AString: string): string;
@@ -275,7 +286,7 @@ function FormatByteSize(const AByteSize: Longint; const AFormatSettings: TFormat
 implementation
 
 uses
-  StrUtils,
+  StrUtils, Character,
   IdHashMessageDigest, IdHash;
 
 function RightPos(const ASubString, AString: string): Integer;
@@ -649,6 +660,29 @@ begin
   end;
 end;
 
+function UpperUnderscoreToSpaced(const AString: string): string;
+begin
+  Result := ReplaceStr(AString, '_', ' ');
+end;
+
+function Camelize(const AString: string): string;
+var
+  LAtBeginning: Boolean;
+  LChar: Char;
+begin
+  Result := '';
+
+  LAtBeginning := True;
+  for LChar in AString do
+  begin
+    if LAtBeginning then
+      Result := Result + UpperCase(LChar)
+    else
+      Result := Result + LowerCase(LChar);
+    LAtBeginning := LChar = ' ';
+  end;
+end;
+
 function UpperUnderscoreToCamel(const AString: string): string;
 var
   I: Integer;
@@ -894,13 +928,13 @@ const
   GB = 1024 * MB;
 begin
   if AByteSize > GB then
-    Result := FormatFloat('#.## GBs', AByteSize / GB, AFormatSettings)
+    Result := FormatFloat('0.## GBs', AByteSize / GB, AFormatSettings)
   else if AByteSize > MB then
-    Result := FormatFloat('#.## MBs', AByteSize / MB, AFormatSettings)
+    Result := FormatFloat('0.## MBs', AByteSize / MB, AFormatSettings)
   else if AByteSize > KB then
-    Result := FormatFloat('#.## KBs', AByteSize / KB, AFormatSettings)
+    Result := FormatFloat('0.## KBs', AByteSize / KB, AFormatSettings)
   else
-    Result := FormatFloat('#.## bytes', AByteSize, AFormatSettings);
+    Result := FormatFloat('0 bytes', AByteSize, AFormatSettings);
 end;
 
 initialization

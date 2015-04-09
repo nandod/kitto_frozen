@@ -30,7 +30,7 @@ type
     FOldPassword: TExtFormTextField;
     FNewPassword: TExtFormTextField;
     FConfirmNewPassword: TExtFormTextField;
-    FButton: TExtButton;
+    FConfirmButton: TKExtButton;
     FStatusBar: TKExtStatusBar;
     FFormPanel: TExtFormFormPanel;
     FOldPasswordHash: string;
@@ -52,7 +52,7 @@ type
 implementation
 
 uses
-  SysUtils, StrUtils,
+  SysUtils, StrUtils, Math,
   ExtPascalUtils,
   EF.Classes, EF.Localization, EF.Tree, EF.StrUtils,
   Kitto.Types, Kitto.Config,
@@ -114,7 +114,7 @@ procedure TKExtChangePasswordWindow.InitDefaults;
 
   function ReplaceMacros(const ACode: string): string;
   begin
-    Result := ReplaceStr(ACode, '%BUTTON%', FButton.JSName);
+    Result := ReplaceStr(ACode, '%BUTTON%', FConfirmButton.JSName);
     Result := ReplaceStr(Result, '%OLDPW%', FOldPassword.JSName);
     Result := ReplaceStr(Result, '%NEWPW%', FNewPassword.JSName);
     Result := ReplaceStr(Result, '%NEWPW2%', FConfirmNewPassword.JSName);
@@ -141,28 +141,31 @@ begin
   Modal := True;
   Title := _(Session.Config.AppTitle);
   Width := 316;
-  Height := 142;
+  Height := 162;
+  Maximized := Session.IsMobileBrowser;
+  Border := not Maximized;
   Closable := True;
   Resizable := False;
 
-  FStatusBar := TKExtStatusBar.Create;
+  FStatusBar := TKExtStatusBar.Create(Self);
   FStatusBar.DefaultText := '';
   FStatusBar.BusyText := _('Changing password...');
 
-  FFormPanel := TExtFormFormPanel.AddTo(Items);
+  FFormPanel := TExtFormFormPanel.CreateAndAddTo(Items);
   FFormPanel.Region := rgCenter;
-  FFormPanel.LabelWidth := 140;
+  FFormPanel.LabelWidth := 150;
+  FFormPanel.LabelAlign := laRight;
   FFormPanel.Border := False;
   FFormPanel.BodyStyle := SetPaddings(5, 5);
   FFormPanel.Frame := False;
   FFormPanel.MonitorValid := True;
   FFormPanel.Bbar := FStatusBar;
 
-  FButton := TExtButton.AddTo(FStatusBar.Items);
-  FButton.Icon := Session.Config.GetImageURL('password');
-  FButton.Text := _('Change password');
+  FConfirmButton := TKExtButton.CreateAndAddTo(FStatusBar.Items);
+  FConfirmButton.SetIconAndScale('password', 'medium');
+  FConfirmButton.Text := _('Change password');
 
-  FOldPassword := TExtFormTextField.AddTo(FFormPanel.Items);
+  FOldPassword := TExtFormTextField.CreateAndAddTo(FFormPanel.Items);
   FOldPassword.Name := 'OldPassword';
   //FOldPassword.Value := ...
   FOldPassword.FieldLabel := _('Old Password');
@@ -171,7 +174,7 @@ begin
   FOldPassword.Width := 136;
   FOldPassword.EnableKeyEvents := True;
 
-  FNewPassword := TExtFormTextField.AddTo(FFormPanel.Items);
+  FNewPassword := TExtFormTextField.CreateAndAddTo(FFormPanel.Items);
   FNewPassword.Name := 'NewPassword';
   //FNewPassword.Value := ...
   FNewPassword.FieldLabel := _('New Password');
@@ -180,7 +183,7 @@ begin
   FNewPassword.Width := 136;
   FNewPassword.EnableKeyEvents := True;
 
-  FConfirmNewPassword := TExtFormTextField.AddTo(FFormPanel.Items);
+  FConfirmNewPassword := TExtFormTextField.CreateAndAddTo(FFormPanel.Items);
   FConfirmNewPassword.Name := 'ConfirmNewPassword';
   //FConfirmNewPassword.Value := ...
   FConfirmNewPassword.FieldLabel := _('Confirm New Password');
@@ -196,11 +199,11 @@ begin
   FNewPassword.On('specialkey', JSFunction('field, e', GetSubmitJS));
   FConfirmNewPassword.On('specialkey', JSFunction('field, e', GetSubmitJS));
 
-  FButton.Handler := Ajax(DoChangePassword, ['Dummy', FStatusBar.ShowBusy,
+  FConfirmButton.Handler := Ajax(DoChangePassword, ['Dummy', FStatusBar.ShowBusy,
     'OldPassword', FOldPassword.GetValue, 'NewPassword', FNewPassword.GetValue,
     'ConfirmNewPassword', FConfirmNewPassword.GetValue]);
 
-  FButton.Disabled := True;
+  FConfirmButton.Disabled := True;
 
   FOldPassword.Focus(False, 500);
 end;

@@ -21,15 +21,15 @@ unit Kitto.Metadata;
 interface
 
 uses
-  Classes, Generics.Collections,
+  Classes, Generics.Collections, Types,
   EF.Types, EF.Tree, EF.YAML, EF.ObserverIntf;
 
 type
   TKMetadataCatalog = class;
 
-  ///	<summary>A metadata object is a tree object (often persistent) that is
-  ///	managed by a catalog. There are catalogs for models, views,
-  ///	layouts.</summary>
+  /// <summary>A metadata object is a tree object (often persistent) that is
+  /// managed by a catalog. There are catalogs for models, views,
+  /// layouts.</summary>
   TKMetadata = class(TEFPersistentTree)
   private
     FCatalog: TKMetadataCatalog;
@@ -37,17 +37,24 @@ type
     class function GetClassNameForResourceURI: string; virtual;
     function GetPersistentFileName: string; override;
   public
+    const SYS_PREFIX = 'Sys$';
+
     property Catalog: TKMetadataCatalog read FCatalog;
 
-    ///	<summary>Returns a string URI that uniquely identifies the object, to
-    ///	be used for access control.</summary>
+    /// <summary>Returns a string URI that uniquely identifies the object, to
+    /// be used for access control.</summary>
     function GetResourceURI: string; virtual;
 
-    ///	<summary>Returns true if access is granted to the resource representing
-    ///	the metadata object in the specified mode. This is a shortcut to
-    ///	calling TKConfig.Instance.IsAccessGranted (possibly multiple times for
-    ///	cascading, and "or"ing the results).</summary>
+    /// <summary>Returns true if access is granted to the resource representing
+    /// the metadata object in the specified mode. This is a shortcut to
+    /// calling TKConfig.Instance.IsAccessGranted (possibly multiple times for
+    /// cascading, and "or"ing the results).</summary>
     function IsAccessGranted(const AMode: string): Boolean; virtual;
+
+    /// <summary>
+    ///  Makes the current object a copy of the specified tree.
+    /// </summary>
+    procedure Assign(const ASource: TEFTree); override;
   end;
 
   TKMetadataClass = class of TKMetadata;
@@ -56,19 +63,21 @@ type
   strict protected
     class function GetClassNameForResourceURI: string; virtual;
   public
-    ///	<summary>Returns a string URI that uniquely identifies the object, to
-    ///	be used for access control.</summary>
+    /// <summary>Returns a string URI that uniquely identifies the object, to
+    /// be used for access control.</summary>
     function GetResourceURI: string; virtual;
 
-    ///	<summary>Returns true if access is granted to the resource representing
-    ///	the metadata object in the specified mode. This is a shortcut to
-    ///	calling TKConfig.Instance.IsAccessGranted (possibly multiple times for
-    ///	cascading, and "or"ing the results).</summary>
+    /// <summary>Returns true if access is granted to the resource representing
+    /// the metadata object in the specified mode. This is a shortcut to
+    /// calling TKConfig.Instance.IsAccessGranted (possibly multiple times for
+    /// cascading, and "or"ing the results).</summary>
     function IsAccessGranted(const AMode: string): Boolean; virtual;
   end;
 
+  TKMetadataRegistry = class;
+
   TKMetadataCatalog = class(TEFSubjectAndObserver)
-  private
+  strict private
     FPath: string;
     FIndex: TStringList;
     FReader: TEFYAMLReader;
@@ -87,13 +96,13 @@ type
     function FixObjectClassType(const AObject: TKMetadata): TKMetadata;
     procedure CreateIndex;
 
-    ///	<summary>Frees and deletes all persistent objects that don't exist on
-    ///	disk anymore.</summary>
+    /// <summary>Frees and deletes all persistent objects that don't exist on
+    /// disk anymore.</summary>
     procedure Purge;
     procedure ObjectAdded(const AFileName: string);
     procedure ObjectRemoved(const AFileName: string);
     procedure ObjectDisposed(const AFileName: string);
-  protected
+  strict protected
     procedure ObjectNotFound(const AName: string);
     // Delete file and free object.
     procedure DisposeObject(const AObject: TKMetadata);
@@ -102,6 +111,8 @@ type
     procedure AfterCreateObject(const AObject: TKMetadata); virtual;
     procedure SetPath(const AValue: string); virtual;
     function GetObjectClassType: TKMetadataClass; virtual; abstract;
+    function GetDefaultObjectTypeName: string; virtual;
+    function GetMetadataRegistry: TKMetadataRegistry; virtual; abstract;
   public
     procedure AfterConstruction; override;
     destructor Destroy; override;
@@ -111,39 +122,41 @@ type
   public
     property Path: string read FPath write SetPath;
 
-    ///	<summary>Returns the full file name for the specified persistent
-    ///	name.</summary>
+    /// <summary>Returns the full file name for the specified persistent
+    /// name.</summary>
     function GetFullFileName(const AName: string): string;
 
-    ///	<summary>Closes and reopens the catalog, rebuilds the index and
-    ///	invalidates all objects.</summary>
-    ///	<remarks>Upon calling this method, any pointer to an object loaded by
-    ///	the catalog is no longer valid.</remarks>
+    /// <summary>Closes and reopens the catalog, rebuilds the index and
+    /// invalidates all objects.</summary>
+    /// <remarks>Upon calling this method, any pointer to an object loaded by
+    /// the catalog is no longer valid.</remarks>
     procedure Open; virtual;
 
-    ///	<summary>Returns true if the catalog is open.</summary>
-    ///	<remarks>Currently returns False if the catalog is open but
-    ///	empty.</remarks>
+    /// <summary>Returns true if the catalog is open.</summary>
+    /// <remarks>Currently returns False if the catalog is open but
+    /// empty.</remarks>
     function IsOpen: Boolean;
 
-    ///	<summary>Rebuilds the index preserving any objects already created. An
-    ///	object that is no longer part of the rebuilt index, though (for example
-    ///	when a file is deleted from the outside), is destroyed
-    ///	anyway.</summary>
-    ///	<remarks>If the catalog is not open, calling this method raises an
-    ///	exception.</remarks>
+    /// <summary>Rebuilds the index preserving any objects already created. An
+    /// object that is no longer part of the rebuilt index, though (for example
+    /// when a file is deleted from the outside), is destroyed
+    /// anyway.</summary>
+    /// <remarks>If the catalog is not open, calling this method raises an
+    /// exception.</remarks>
     procedure Refresh; virtual;
 
-    ///	<summary>Closes the catalog and frees all objects.</summary>
+    /// <summary>Closes the catalog and frees all objects.</summary>
     procedure Close; virtual;
 
     property ObjectCount: Integer read GetObjectCount;
     property Objects[I: Integer]: TKMetadata read GetObject;
-    function FindObject(const AName: string): TKMetadata;
+    function FindObject(const AName: string): TKMetadata; overload;
+    function FindObject(const ANames: TStringDynArray): TKMetadata; overload;
     type TPredicate = reference to function (const AObject: TKMetadata): Boolean;
     function FindObjectByPredicate(const APredicate: TPredicate): TKMetadata;
 
-    function ObjectByName(const AName: string): TKMetadata;
+    function ObjectByName(const AName: string): TKMetadata; overload;
+    function ObjectByName(const ANames: TStringDynArray): TKMetadata; overload;
 
     function ObjectByNode(const ANode: TEFNode): TKMetadata;
     function FindObjectByNode(const ANode: TEFNode): TKMetadata;
@@ -152,35 +165,47 @@ type
     procedure RemoveObject(const AObject: TKMetadata);
     procedure DeleteObject(const AIndex: Integer);
 
-    ///	<summary>
-    ///	  Marks the object as disposed and removes it from the index (but
-    ///	  doesn't free it). The file is then deleted when SaveAll is called.
-    ///	</summary>
-    ///	<param name="AObject">
-    ///	  Object to be disposed.
-    ///	</param>
+    /// <summary>
+    ///   Marks the object as disposed and removes it from the index (but
+    ///   doesn't free it). The file is then deleted when SaveAll is called.
+    /// </summary>
+    /// <param name="AObject">
+    ///   Object to be disposed.
+    /// </param>
     procedure MarkObjectAsDisposed(const AObject: TKMetadata);
 
-    ///	<summary>
-    ///	  Saves all modified objects in the catalog and disposes all objects
-    ///	  marked for disposition.
-    ///	</summary>
+    /// <summary>
+    ///   Saves all modified objects in the catalog and disposes all objects
+    ///   marked for disposition.
+    /// </summary>
     procedure SaveAll;
 
     procedure SaveObject(const AObject: TKMetadata);
   end;
 
   TKMetadataRegistry = class(TEFRegistry)
-  private
-    class var FInstance: TKMetadataRegistry;
-    class function GetInstance: TKMetadataRegistry; static;
-  protected
-    procedure BeforeRegisterClass(const AId: string; const AClass: TClass);
-      override;
   public
-    class property Instance: TKMetadataRegistry read GetInstance;
-    class destructor Destroy;
-    function GetClass(const AId: string): TKMetadataClass;
+    /// <summary>
+    ///   Returns a reference to the class identified by Id1; falls back to Id2
+    ///   if the first one is not found. Looks for system classes as well.
+    /// </summary>
+    /// <param name="AId1">
+    ///   Id of the primary class requested.
+    /// </param>
+    /// <param name="AId2">
+    ///   Id of the fallback class.
+    /// </param>
+    /// <remarks>
+    ///   The search sequence is:<br />Id1 user class<br />Id2 user class
+    ///   <br />Id1 system class<br />Id2 system class<br />Error
+    /// </remarks>
+    function GetClass(const AId1, AId2: string): TKMetadataClass;
+
+    /// <summary>
+    ///   Like GetClass, but returns nil instead of raiseing errors if no class
+    ///   found.
+    /// </summary>
+    function FindClass(const AId1, AId2: string): TKMetadataClass;
   end;
 
 implementation
@@ -265,7 +290,7 @@ begin
   begin
     LFileName := GetFullFileName(AObject.PersistentName);
     if FileExists(LFileName) then
-      DeleteFile(LFileName);
+      SysUtils.DeleteFile(LFileName);
   end;
   AObject.Free;
 end;
@@ -328,6 +353,11 @@ begin
     FIndex.Delete(LIndex);
     ObjectDisposed(AObject.PersistentFileName);
   end;
+end;
+
+function TKMetadataCatalog.GetDefaultObjectTypeName: string;
+begin
+  Result := '';
 end;
 
 function TKMetadataCatalog.GetFullFileName(const AName: string): string;
@@ -397,7 +427,7 @@ begin
   Assert(IsOpen);
 
   // Add new files and update existing files.
-  LResult := FindFirst(IncludeTrailingPathDelimiter(FPath) + '*.yaml', faNormal, LSearchRec);
+  LResult := SysUtils.FindFirst(IncludeTrailingPathDelimiter(FPath) + '*.yaml', faNormal, LSearchRec);
   while LResult = 0 do
   begin
     LBaseName := ChangeFileExt(LSearchRec.Name, '');
@@ -408,9 +438,9 @@ begin
       FIndex.AddObject(LBaseName, nil);
       ObjectAdded(LBaseName);
     end;
-    LResult := FindNext(LSearchRec);
+    LResult := SysUtils.FindNext(LSearchRec);
   end;
-  FindClose(LSearchRec);
+  SysUtils.FindClose(LSearchRec);
   // Delete no longer existing files.
   Purge;
 end;
@@ -486,6 +516,13 @@ begin
     ObjectNotFound(AName);
 end;
 
+function TKMetadataCatalog.ObjectByName(const ANames: TStringDynArray): TKMetadata;
+begin
+  Result := FindObject(ANames);
+  if Result = nil then
+    ObjectNotFound(string.Join('|', ANames));
+end;
+
 function TKMetadataCatalog.ObjectByNode(const ANode: TEFNode): TKMetadata;
 begin
   Result := FindObjectByNode(ANode);
@@ -499,6 +536,19 @@ end;
 procedure TKMetadataCatalog.ObjectDisposed(const AFileName: string);
 begin
   NotifyObservers('ObjectDisposed' + #9 + AFileName);
+end;
+
+function TKMetadataCatalog.FindObject(const ANames: TStringDynArray): TKMetadata;
+var
+  AName: string;
+begin
+  Result := nil;
+  for AName in ANames do
+  begin
+    Result := FindObject(AName);
+    if Assigned(Result) then
+      Break;
+  end;
 end;
 
 function TKMetadataCatalog.FindObjectByNode(const ANode: TEFNode): TKMetadata;
@@ -557,6 +607,7 @@ begin
     // Change object type according to the declaration, if present.
     Result := FixObjectClassType(Result);
     AfterCreateObject(Result);
+    Result.AfterLoad;
   end;
   if Result = nil then
     ObjectNotFound(AName);
@@ -570,17 +621,12 @@ begin
   Assert(Assigned(AObject));
 
   // Change object type according to the declaration, if present.
-  LDeclaredClassName := AObject.GetString('Type');
-  if LDeclaredClassName <> '' then
+  LDeclaredClassName := AObject.GetString('Type', GetDefaultObjectTypeName);
+  LDeclaredClassType := GetMetadataRegistry.FindClass(LDeclaredClassName, AObject.PersistentName);
+  if Assigned(LDeclaredClassType) and (LDeclaredClassType <> AObject.ClassType) then
   begin
-    LDeclaredClassType := TKMetadataRegistry.Instance.GetClass(LDeclaredClassName);
-    if LDeclaredClassType <> AObject.ClassType then
-    begin
-      Result := LDeclaredClassType.Clone(AObject);
-      AObject.Free;
-    end
-    else
-      Result := AObject;
+    Result := LDeclaredClassType.Clone(AObject);
+    AObject.Free;
   end
   else
     Result := AObject;
@@ -647,29 +693,49 @@ end;
 
 { TKMetadataRegistry }
 
-procedure TKMetadataRegistry.BeforeRegisterClass(const AId: string;
-  const AClass: TClass);
+function TKMetadataRegistry.FindClass(const AId1, AId2: string): TKMetadataClass;
+
+  function FindClassIfNotEmpty(const AId: string): TKMetadataClass;
+  begin
+    if AId <> '' then
+      Result := TKMetadataClass(inherited FindClass(AId))
+    else
+      Result := nil;
+  end;
+
 begin
-  if not AClass.InheritsFrom(TKMetadata) then
-    raise EKError.CreateFmt('Cannot regisater class %s (Id %s). Class is not a TKMetadata subclass.', [AClass.ClassName, AId]);
-  inherited;
+  Result := FindClassIfNotEmpty(AId1);
+  if not Assigned(Result) then
+  begin
+    Result := FindClassIfNotEmpty(AId2);
+    if not Assigned(Result) then
+    begin
+      Result := FindClassIfNotEmpty(TKMetadata.SYS_PREFIX + AId1);
+      if not Assigned(Result) then
+        Result := FindClassIfNotEmpty(TKMetadata.SYS_PREFIX + AId2);
+    end;
+  end;
 end;
 
-class destructor TKMetadataRegistry.Destroy;
-begin
-  FreeAndNil(FInstance);
-end;
+function TKMetadataRegistry.GetClass(const AId1, AId2: string): TKMetadataClass;
 
-function TKMetadataRegistry.GetClass(const AId: string): TKMetadataClass;
-begin
-  Result := TKMetadataClass(inherited GetClass(AId));
-end;
+  function FindClassIfNotEmpty(const AId: string): TKMetadataClass;
+  begin
+    if AId <> '' then
+      Result := TKMetadataClass(inherited FindClass(AId))
+    else
+      Result := nil;
+  end;
 
-class function TKMetadataRegistry.GetInstance: TKMetadataRegistry;
 begin
-  if FInstance = nil then
-    FInstance := TKMetadataRegistry.Create;
-  Result := TKMetadataRegistry(FInstance);
+  Result := FindClass(AId1, AId2);
+  if not Assigned(Result) then
+  begin
+    if AId1 <> '' then
+      ClassNotFound(AId1)
+    else
+      ClassNotFound(AId2);
+  end;
 end;
 
 { TKMetadata }
@@ -697,6 +763,13 @@ end;
 function TKMetadata.IsAccessGranted(const AMode: string): Boolean;
 begin
   Result := TKConfig.Instance.IsAccessGranted(GetResourceURI, AMode);
+end;
+
+procedure TKMetadata.Assign(const ASource: TEFTree);
+begin
+  inherited;
+  if Assigned(ASource) and (ASource is TKMetadata) then
+    FCatalog := TKMetadata(ASource).Catalog;
 end;
 
 class function TKMetadata.GetClassNameForResourceURI: string;

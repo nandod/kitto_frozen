@@ -28,6 +28,11 @@ uses
 
 type
   ///	<summary>
+  ///	  Generic prototype used for functions that translate names, such as field or alias names.
+  ///	</summary>
+  TNameTranslator = reference to function (const AName: string): string;
+
+  ///	<summary>
   ///	  Many components in EF have OnLog events of this type.
   ///	</summary>
   TEFLogEvent = procedure (const ASender: TObject; const AString: string;
@@ -70,9 +75,9 @@ type
   ///	  string Ids.
   ///	</summary>
   TEFRegistry = class abstract
-  private
+  strict private
     FClasses: TDictionary<string, TClass>;
-  protected
+  strict protected
     ///	<summary>
     ///	  Called at the beginning of RegisterClass.
     ///	</summary>
@@ -99,6 +104,11 @@ type
     ///   functionality.
     ///	</summary>
     property Classes: TDictionary<string, TClass> read FClasses;
+
+    ///	<summary>
+    ///	  Raises the "class not found" exception.
+    ///	</summary>
+    procedure ClassNotFound(const AClassId: string);
   public
     constructor Create;
     destructor Destroy; override;
@@ -125,13 +135,19 @@ type
     function GetClass(const AId: string): TClass;
 
     ///	<summary>
+    ///	  Returns the Id under which a class was registered, or ''.
+    ///	</summary>
+    function FindClassId(const AClass: TClass): string;
+
+    ///	<summary>
     ///	  Returns a class reference to the class identified by AClassId, if
     ///	  registered. Otherwise returns nil.
     ///	</summary>
     function FindClass(const AId: string): TClass;
 
-    ///	<summary>Returns a sorted array with all registered class
-    ///	Ids.</summary>
+    ///	<summary>
+    ///   Returns a sorted array with all registered class Ids.
+    ///	</summary>
     function GetClassIds: TArray<string>;
   end;
 
@@ -256,12 +272,33 @@ begin
     Result := Default(TClass);
 end;
 
+function TEFRegistry.FindClassId(const AClass: TClass): string;
+var
+  LClass: TPair<string, TClass>;
+begin
+  Result := '';
+  for LClass in FClasses do
+  begin
+    if LClass.Value = AClass then
+    begin
+      Result := LClass.Key;
+      Break;
+    end;
+  end;
+end;
+
 function TEFRegistry.GetClass(const AId: string): TClass;
 begin
+  Result := nil; // Avoids warning.
   if HasClass(AId) then
     Result := FClasses[AId]
   else
-    raise EEFError.CreateFmt('Class %s not found.', [AId]);
+    ClassNotFound(AId);
+end;
+
+procedure TEFRegistry.ClassNotFound(const AClassId: string);
+begin
+  raise EEFError.CreateFmt('Class %s not found.', [AClassId]);
 end;
 
 function TEFRegistry.GetClassIds: TArray<string>;

@@ -15,8 +15,8 @@
 -------------------------------------------------------------------------------}
 
 ///	<summary>
-///	  DB-related classes. This unit defines the base classes that implement
-///	  EF's abstract data access framework.
+///	 DB-related classes. This unit defines the base classes that implement
+///	 EF's abstract data access framework.
 ///	</summary>
 unit EF.DB;
 
@@ -32,8 +32,8 @@ type
   TEFDBSchemaInfo = class;
 
   ///	<summary>
-  ///	  A base class for database metadata info, useful for reverse engineering
-  ///	  of databases and generic database metadata access.
+  ///	 A base class for database metadata info, useful for reverse engineering
+  ///	 of databases and generic database metadata access.
   ///	</summary>
   TEFDBInfo = class(TEFComponent)
   private
@@ -65,8 +65,8 @@ type
   end;
 
   ///	<summary>
-  ///	  Base class for database metadata items, such as tables, columns and
-  ///	  constraints.
+  ///	 Base class for database metadata items, such as tables, columns and
+  ///	 constraints.
   ///	</summary>
   TEFDBItemInfo = class(TPersistent)
   private
@@ -78,8 +78,8 @@ type
   TEFDBTableInfo = class;
 
   ///	<summary>
-  ///	  Contains enough information to define a table's primary key. It is not
-  ///	  used alone, but together with TEFDBTableInfo.
+  ///	 Contains enough information to define a table's primary key. It is not
+  ///	 used alone, but together with TEFDBTableInfo.
   ///	</summary>
   TEFDBPrimaryKeyInfo = class(TEFDBItemInfo)
   private
@@ -93,11 +93,11 @@ type
   end;
 
   ///	<summary>
-  ///	  Contains enough information to define a table's column. It is not used
-  ///	  alone, but together with TEFDBTableInfo.
+  ///	 Contains enough information to define a table's column. It is not used
+  ///	 alone, but together with TEFDBTableInfo.
   ///	</summary>
   ///	<remarks>
-  ///	  Domains are not supported. Only plain field types are recognized.
+  ///	 Domains are not supported. Only plain field types are recognized.
   ///	</remarks>
   TEFDBColumnInfo = class(TEFDBItemInfo)
   private
@@ -112,14 +112,14 @@ type
     property DataType: TEFDataType read FDataType write FDataType;
 
     ///	<summary>
-    ///	  For string fields, this is the length in characters; for other data
-    ///	  types, it's 0.
+    ///	 For string fields, this is the length in characters; for other data
+    ///	 types, it's 0.
     ///	</summary>
     property Size: Integer read FSize write FSize;
 
     ///	<summary>
-    ///	  For decimal fields, this is the number of supported decimal digits;
-    ///   for other data types, it's 0.
+    ///	 For decimal fields, this is the number of supported decimal digits;
+    ///  for other data types, it's 0.
     ///	</summary>
     property Scale: Integer read FScale write FScale;
 
@@ -137,8 +137,8 @@ type
   end;
 
   ///	<summary>
-  ///	  Contains enough information to define a table's foreign key. It is not
-  ///	  used alone, but together with TEFDBTableInfo.
+  ///	 Contains enough information to define a table's foreign key. It is not
+  ///	 used alone, but together with TEFDBTableInfo.
   ///	</summary>
   TEFDBForeignKeyInfo = class(TEFDBItemInfo)
   private
@@ -163,7 +163,7 @@ type
   end;
 
   ///	<summary>
-  ///	  Contains enough information to describe a database table.
+  ///	 Contains enough information to describe a database table.
   ///	</summary>
   TEFDBTableInfo = class(TEFDBItemInfo)
   private
@@ -200,7 +200,7 @@ type
   end;
 
   ///	<summary>
-  ///	  Contains all database schema objects.
+  ///	 Contains all database schema objects.
   ///	</summary>
   TEFDBSchemaInfo = class(TEFDBItemInfo)
   private
@@ -244,8 +244,8 @@ type
   TEFDBConnection = class;
 
   ///	<summary>
-  ///	  Base class for components linked to a database connection, such as
-  ///	  commands and queries.
+  ///	 Base class for components linked to a database connection, such as
+  ///	 commands and queries.
   ///	</summary>
   TEFDBComponent = class(TEFComponent)
   private
@@ -271,7 +271,9 @@ type
     property Connection: TEFDBConnection read GetConnection write SetConnection;
   end;
 
-  ///	<summary>Base class for database commands that don't return data.</summary>
+  ///	<summary>
+  ///  Base class for database commands that don't return data.
+  /// </summary>
   TEFDBCommand = class(TEFDBComponent)
   protected
     function GetCommandText: string; virtual; abstract;
@@ -356,8 +358,8 @@ type
     ///	  <para>If both AFrom and ATo are 0, the statement is returned
     ///	  unchanged.</para>
     ///	</summary>
-    function AddLimitClause(const ACommandText: string;
-      const AFrom, AFor: Integer): string; virtual;
+    function AddLimitClause(const ASelectClause, AFromClause, AWhereClause, AOrderByClause: string;
+      const AFrom: Integer; const AFor: Integer): string; virtual;
 
     ///	<summary>
     ///	  <para>Expands database-specific macros. Called before executing a
@@ -381,13 +383,24 @@ type
     ///	command. The object has a chance to patch param types and
     ///	values.</summary>
     procedure BeforeExecute(const ACommandText: string; const AParams: TParams); virtual;
+
+    ///	<summary><para>To be called to transform a Delphi TDateTimeValue as
+    ///	an SQL string value, compatible with the Database Engine.</para>
+    /// <para>By default this function uses SQL-92 standard</para>
+    /// <para>If the passed value is olny a Date it returns the date in format yyyy-mm-dd.
+    /// (eg.1997-12-17)</para>
+    /// <para>Otherwise it returns the date and time in format yyyy-mm-dd hh:mm:ss.zzz.
+    /// (eg.1997-12-17 07:37:16.123)</para>
+    ///</summary>
+    function FormatDateTime(const ADateTimeValue: TDateTime): string; virtual;
   end;
 
   TEFSQLServerDBEngineType = class(TEFDBEngineType)
   public
-    function AddLimitClause(const ACommandText: string; const AFrom: Integer;
-      const AFor: Integer): string; override;
+    function AddLimitClause(const ASelectClause, AFromClause, AWhereClause, AOrderByClause: string;
+      const AFrom: Integer; const AFor: Integer): string; override;
     function ExpandCommandText(const ACommandText: string): string; override;
+    function FormatDateTime(const ADateTimeValue: TDateTime): string; override;
   end;
 
   TEFFirebirdDBEngineType = class(TEFDBEngineType)
@@ -396,7 +409,7 @@ type
   end;
 
   ///	<summary>
-  ///	  A base class for database connections.
+  ///	 A base class for database connections.
   ///	</summary>
   TEFDBConnection = class(TEFComponent)
   private
@@ -491,6 +504,10 @@ type
     ///	  parameters, in which case you are required to pass ADBParams.
     ///	</summary>
     function SQLLookup(const ASQLStatement: string; const ADBParams: TParams = nil): Variant;
+
+    ///	<summary>Returns an instance of the concrete connection object,
+    /// used by this connection.</summary>
+    function GetConnection: TObject; virtual; abstract;
   end;
 
   ///	<summary>
@@ -742,7 +759,8 @@ end;
 
 procedure TEFDBConnection.Open;
 begin
-  TEFLogger.Instance.Log('Opening DB connection.', TEFLogger.LOG_MEDIUM);
+  if not IsOpen then
+    TEFLogger.Instance.Log('Opening DB connection.', TEFLogger.LOG_MEDIUM);
   InternalOpen;
 end;
 
@@ -1132,23 +1150,23 @@ end;
 
 { TEFDBEngineType }
 
-function TEFDBEngineType.AddLimitClause(const ACommandText: string; const AFrom,
-  AFor: Integer): string;
+function TEFDBEngineType.AddLimitClause(
+  const ASelectClause, AFromClause, AWhereClause, AOrderByClause: string;
+  const AFrom: Integer; const AFor: Integer): string;
 var
   LOrderByClause: string;
 begin
-  Result := ACommandText;
+  Result := ASelectClause + ' ' + AFromClause + ' ' + AWhereClause;
   if (AFrom <> 0) or (AFor <> 0) then
   begin
-    LOrderByClause := GetSQLOrderByClause(ACommandText);
-    if LOrderByClause <> '' then
-      Result := SetSQLOrderByClause(ACommandText, LOrderByClause + ' ' +
-        Format(' rows %d to %d', [AFrom + 1, AFrom + 1 + AFor - 1]))
+    if AOrderByClause <> '' then
+      Result := Result + LOrderByClause + ' ' +
+        Format(' rows %d to %d', [AFrom + 1, AFrom + 1 + AFor - 1])
     else
       raise EEFError.Create('Cannot add limit clause without order by clause.');
   end
   else
-    Result := ACommandText;
+    Result := Result + ' ' + AOrderByClause;
 end;
 
 procedure TEFDBEngineType.BeforeExecute(const ACommandText: string;
@@ -1161,42 +1179,49 @@ begin
   Result := ReplaceText(ACommandText, '%DB.CURRENT_DATE%', 'current_date');
 end;
 
+function TEFDBEngineType.FormatDateTime(const ADateTimeValue: TDateTime): string;
+begin
+  //Check if the value is only a date
+  if Trunc(ADateTimeValue) = ADateTimeValue then
+    Result := SysUtils.FormatDateTime('yyyy''-''mm''-''dd', ADateTimeValue)
+  else
+    Result := SysUtils.FormatDateTime('yyyy''-''mm''-''dd hh'':''mm'':''ss''.''zzz', ADateTimeValue);
+end;
+
 { TEFSQLServerDBEngineType }
 
-function TEFSQLServerDBEngineType.AddLimitClause(const ACommandText: string;
+function TEFSQLServerDBEngineType.AddLimitClause(
+  const ASelectClause, AFromClause, AWhereClause, AOrderByClause: string;
   const AFrom, AFor: Integer): string;
-var
-  LSelectClause: string;
-  LOrderByClause: string;
-  LFromClause: string;
-  LWhereClause: string;
 begin
   if (AFrom <> 0) or (AFor <> 0) then
   begin
-    LSelectClause := GetSQLSelectClause(ACommandText);
-    LFromClause := GetSQLFromClause(ACommandText);
-    LWhereClause := GetSQLWhereClause(ACommandText);
-    if LWhereClause <> '' then
-      LWhereClause := ' where ' + LWhereClause;
-    LOrderByClause := GetSQLOrderByClause(ACommandText);
-    if LOrderByClause <> '' then
-      LOrderByClause := ' order by ' + LOrderByClause
-    else
+    if AOrderByClause = '' then
       raise EEFError.Create('Cannot add limit clause without order by clause.');
 { TODO :
 Don't select the __ROWNUM field to save bandwidth?
 Select clause massaging would be required. }
-    Result := Format('select * from (select %s, row_number() over (%s) as __ROWNUM ' +
-      'from %s%s) as __OUTER where __OUTER.__ROWNUM between %d and %d',
-      [LSelectClause, LOrderByClause, LFromClause, LWhereClause, AFrom + 1, AFrom + 1 + AFor - 1]);
+    Result := Format('select * from (%s, row_number() over (%s) as __ROWNUM ' +
+      '%s %s) as __OUTER where __OUTER.__ROWNUM between %d and %d',
+      [ASelectClause, AOrderByClause, AFromClause, AWhereClause, AFrom + 1, AFrom + 1 + AFor - 1]);
   end
   else
-    Result := inherited AddLimitClause(ACommandText, AFrom, AFor);
+    Result := inherited AddLimitClause(ASelectClause, AFromClause, AWhereClause, AOrderByClause,
+      AFrom, AFor);
 end;
 
 function TEFSQLServerDBEngineType.ExpandCommandText(const ACommandText: string): string;
 begin
-  Result := ReplaceText(inherited ExpandCommandText(ACommandText), '%DB.CURRENT_DATE%', 'getdate()');
+  Result := inherited ExpandCommandText(ReplaceText(ACommandText, '%DB.CURRENT_DATE%', 'getdate()'));
+end;
+
+function TEFSQLServerDBEngineType.FormatDateTime(const ADateTimeValue: TDateTime): string;
+begin
+  //Check if the value is only a date
+  if Trunc(ADateTimeValue) = ADateTimeValue then
+    Result := SysUtils.FormatDateTime('yyyymmdd', ADateTimeValue)
+  else
+    Result := SysUtils.FormatDateTime('yyyy''-''mm''-''ddThh'':''mm'':''ss''.''zzz', ADateTimeValue);
 end;
 
 { TEFDBColumnInfo }

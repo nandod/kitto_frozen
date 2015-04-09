@@ -26,8 +26,9 @@ uses
   Kitto.Metadata.Models, Kitto.Rules;
 
 type
-  ///	<summary>Base class for all ext-specific rule implementation
-  ///	classes.</summary>
+  ///	<summary>
+  ///   Base class for all ext-specific rule implementation classes.
+  ///	</summary>
   TKExtRuleImpl = class(TKRuleImpl)
   protected
     class function GetClassId: string; override;
@@ -60,7 +61,7 @@ type
   ///	<summary>Enforces a maximum allowed value for numeric fields. Can be used
   ///	as a field-level rule.</summary>
   ///	<example>
-  ///	  <code lang="Delphi">
+  ///	  <code>
   ///	Rules:
   ///	  # Only allows scores 1-10.
   ///	  MinValue: 1
@@ -123,7 +124,7 @@ type
   ///	  message can be localized.</para>
   ///	</remarks>
   ///	<example>
-  ///	  <code lang="Delphi">
+  ///	  <code>
   ///	Rules:
   ///	  # Only allows strings starting with "B".
   ///	  CharFilter: /^B*./
@@ -152,7 +153,7 @@ type
   ///	  SubType: alpha_space
   ///	</code>
   ///	  <para>Example of adding a new vtype to ExtJS (from
-  ///	  kitto-core.js):</para>
+  ///	  kitto-init.js):</para>
   ///	  <code lang="Delphi">
   ///	// Additional form vtypes.
   ///	var
@@ -192,12 +193,12 @@ type
   ///	</summary>
   ///	<example>
   ///	  <para>Rule definition:</para>
-  ///	  <code lang="Delphi">
+  ///	  <code>
   ///	Rules:
   ///	  CharFilter: PECodeCharFilter
   ///	</code>
   ///	  <para>Mask definition:</para>
-  ///	  <code lang="Delphi">
+  ///	  <code>
   ///	# Allows only P, E, digits and the dot.
   ///	var PECodeCharFilter = /[PE0-9.]/
   ///	</code>
@@ -210,9 +211,9 @@ type
     procedure ApplyToFormField(const AField: TExtFormField); override;
   end;
 
-  ///	<summary>Applies a custom rexex as a char filter to a field.</summary>
+  ///	<summary>Applies a custom regex as a char filter to a field.</summary>
   ///	<example>
-  ///	  <code lang="Delphi">
+  ///	  <code>
   ///	Rules:
   ///	  CharFilter: [PE0-9.]
   ///	</code>
@@ -233,13 +234,15 @@ type
     procedure ApplyToFormField(const AField: TExtFormField); override;
   end;
 
-  ///	<summary>Converts character input to upper case while typing.</summary>
-  ///	<example>
-  ///	  <code lang="Delphi">
-  ///	Rules:
-  ///	  ForceUpperCase:
-  ///	</code>
-  ///	</example>
+  /// <summary>
+  ///  Converts character input to upper case while typing.
+  /// </summary>
+  /// <example>
+  ///  <code lang="Delphi">
+  ///   Rules:
+  ///     ForceUpperCase:
+  ///  </code>
+  /// </example>
   TKExtForceUpperCase = class(TKExtForceCase)
   protected
     procedure SetEventListener(const AField: TExtFormTextField); override;
@@ -275,8 +278,7 @@ implementation
 uses
   SysUtils, StrUtils,
   ExtPascalUtils,
-  EF.Tree, EF.Localization, EF.StrUtils,
-  Kitto.Ext.Session;
+  EF.Tree, EF.Localization, EF.StrUtils, EF.Macros;
 
 { TKExtRuleImpl }
 
@@ -409,7 +411,7 @@ begin
   begin
     TExtFormTextField(AField).Validator :=
       TExtFormTextField(AField).JSFunction('value',
-      ReplaceStr(Session.Config.MacroExpansionEngine.Expand(Rule.AsExpandedString), '{errorMessage}', StrToJS(GetErrorMessage)));
+      ReplaceStr(TEFMacroExpansionEngine.Instance.Expand(Rule.AsExpandedString), '{errorMessage}', StrToJS(GetErrorMessage)));
   end;
 end;
 
@@ -496,21 +498,23 @@ end;
 
 procedure TKExtForceUpperCase.SetEventListener(const AField: TExtFormTextField);
 begin
-  AField.On('keyup', AField.JSFunction('field, e', 'field.setValue(field.getRawValue().toUpperCase());'));
+  // Filter control characters - don't use >= as it's not rendered correctly.
+  AField.On('keyup', AField.JSFunction('f, e', 'if (e.getCharCode() > 31) f.setValuePreservingCaretPos(f.getRawValue().toUpperCase());'));
 end;
 
 { TKExtForceLowerCase }
 
 procedure TKExtForceLowerCase.SetEventListener(const AField: TExtFormTextField);
 begin
-  AField.On('keyup', AField.JSFunction('field, e', 'field.setValue(field.getRawValue().toLowerCase());'));
+  // Filter control characters - don't use >= as it's not rendered correctly.
+  AField.On('keyup', AField.JSFunction('f, e', 'if (e.getCharCode() > 31) f.setValuePreservingCaretPos(f.getRawValue().toLowerCase());'));
 end;
 
 { TKExtForceCamelCaps }
 
 procedure TKExtForceCamelCaps.SetEventListener(const AField: TExtFormTextField);
 begin
-  AField.On('change', AField.JSFunction('field, newValue, oldValue', 'field.setValue(newValue.capitalize());'));
+  AField.On('change', AField.JSFunction('f, newValue, oldValue', 'f.setValuePreservingCaretPos(newValue.capitalize());'));
 end;
 
 initialization

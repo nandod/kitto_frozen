@@ -20,17 +20,10 @@ License: BSD<extlink http://www.opensource.org/licenses/bsd-license.php>BSD</ext
 }
 unit FCGIApp;
 
-// directives for config file support
-{.$DEFINE HAS_CONFIG}
-{$IFDEF HAS_CONFIG}
-  {.$DEFINE CONFIG_MUST_EXIST}  // directive to make config file becomes mandatory
-{$ENDIF}
-
 interface
 
 uses
   {$IFNDEF MSWINDOWS}cthreads,{$ENDIF}
-  {$IFDEF HAS_CONFIG}IniFiles,{$ENDIF}
   BlockSocket, SysUtils, SyncObjs, Classes, ExtPascalClasses, ExtPascalUtils;
 
 type
@@ -43,12 +36,13 @@ type
     class function GetCurrentWebSession : TCustomWebSession; override;
     function GetDocumentRoot : string; override;
     function GetRequestHeader(const Name : string) : string; override;
+    function GetRequestBody: string; override;
     function GetWebServer : string; override;
     procedure SendResponse(const Msg : AnsiString); override;
     function UploadBlockType(const Buffer : AnsiString; var MarkPos : Integer) : TUploadBlockType; override;
     function UploadNeedUnknownBlock : Boolean; override;
   public
-    constructor Create(AOwner : TObject); override;
+    constructor Create(AOwner: TObject); override;
     destructor Destroy; override;
   end;
 
@@ -63,7 +57,7 @@ type
   TFCGIApplication = class(TCustomWebApplication)
   private
     FExeName      : string;
-    Threads       : TStringList;
+    FThreads: TStringList;
     FThreadsCount : integer;
     // Configurable options
     MaxIdleTime : TDateTime;
@@ -74,11 +68,7 @@ type
   public
     GarbageNow : boolean; // Set to true to trigger the garbage colletor
     Shutdown   : boolean; // Set to true to shutdown the application after the last thread to end, default is false
-    AccessThreads : TCriticalSection;
-    {$IFDEF HAS_CONFIG}
-    procedure ReadConfig;
-    function Reconfig(AReload : Boolean = true) : Boolean; override;
-    {$ENDIF}
+    AccessThreads: TCriticalSection;
     property ExeName : string read FExeName;
     procedure DoRun; override;
     function CanConnect(Address : string) : boolean;
@@ -86,8 +76,9 @@ type
     function ThreadsCount : integer;
     function ReachedMaxConns : boolean;
     procedure OnPortInUseError; virtual;
-    constructor Create(pTitle : string; ASessionClass : TCustomWebSessionClass; pPort : word = 2014; pMaxIdleMinutes : word = 30;
-                       pShutdownAfterLastThreadDown : boolean = false; pMaxConns : integer = 1000); reintroduce;
+    constructor Create(const AOwner: TComponent;
+      pTitle : string; ASessionClass : TCustomWebSessionClass; pPort : word = 2014; pMaxIdleMinutes : word = 30;
+      pShutdownAfterLastThreadDown : boolean = false; pMaxConns : integer = 1000); reintroduce;
     destructor Destroy; override;
     procedure TerminateAllThreads;
   end;
@@ -96,9 +87,7 @@ var
   Application : TFCGIApplication = nil; // FastCGI application object
 
 threadvar
-  CurrentWebSession : TFCGISession; // current FastCGI session object
-
-function CurrentFCGIThread : TFCGISession; deprecated;
+  _CurrentWebSession: TFCGISession; // current FastCGI session object
 
 function CreateWebApplication(const ATitle : string; ASessionClass : TCustomWebSessionClass; APort : Word = 2014;
                               AMaxIdleMinutes : Word = 30; AShutdownAfterLastThreadDown : Boolean = False;
@@ -109,14 +98,10 @@ implementation
 uses
   StrUtils, Math;
 
-function CurrentFCGIThread : TFCGISession; begin
-  Result := CurrentWebSession;
-end;
-
 function CreateWebApplication(const ATitle : string; ASessionClass : TCustomWebSessionClass; APort : Word = 2014;
                               AMaxIdleMinutes : Word = 30; AShutdownAfterLastThreadDown : Boolean = False;
                               AMaxConns : Integer = 1000) : TFCGIApplication; begin
-  Result := TFCGIApplication.Create(ATitle, ASessionClass, APort, AMaxIdleMinutes, AShutdownAfterLastThreadDown, AMaxConns);
+  Result := TFCGIApplication.Create(nil, ATitle, ASessionClass, APort, AMaxIdleMinutes, AShutdownAfterLastThreadDown, AMaxConns);
 end;
 
 type
@@ -142,11 +127,12 @@ type
     FSocket : TBlockSocket; // Current socket for current FastCGI request
     FGarbage,
     FKeepConn : boolean; // Not used
-    FRequest : string;
+    FRequest: RawByteString;
     FRequestHeader : TStringList;
     FSession : TFCGISession;
     FLastAccess : TDateTime;
     function CompleteRequestHeaderInfo(Buffer : AnsiString; I : integer) : boolean;
+    procedure CopyContextFrom(const AThread: TFCGIThread);
   protected
     procedure AddParam(var S : string; Param : array of string);
     procedure ReadRequestHeader(var RequestHeader : TStringList; Stream : AnsiString; ParseCookies : Boolean = False);
@@ -158,10 +144,10 @@ type
     BrowserCache : boolean; // If false generates 'cache-control:no-cache' and 'pragma:no-cache' in HTTP header, default is false
     AccessThread : TCriticalSection;
     property Role : TRole read FRole; // FastCGI role for the current request
-    property Request : string read FRequest; // Request body string
+    property Request: RawByteString read FRequest; // Request body string
     property LastAccess : TDateTime read FLastAccess; // Last TDateTime access of this thread
     property RequestMethod : TRequestMethod read FRequestMethod; // HTTP request method for the current request
-    constructor Create(NewSocket : integer); virtual;
+    constructor Create(NewSocket : integer); reintroduce; virtual;
     destructor Destroy; override;
     procedure SendResponse(S : AnsiString; pRecType : TRecType = rtStdOut);
     procedure Execute; override;
@@ -224,7 +210,8 @@ end;
 Creates a TFCGIThread to handle a new request to be read from the NewSocket parameter
 @param NewSocket Socket to read a new request
 }
-constructor TFCGIThread.Create(NewSocket : integer); begin
+constructor TFCGIThread.Create(NewSocket : integer);
+begin
   if Application.FThreadsCount < 0 then Application.FThreadsCount := 0;
   inc(Application.FThreadsCount);
   FSocket := TBlockSocket.Create(NewSocket);
@@ -234,7 +221,7 @@ constructor TFCGIThread.Create(NewSocket : integer); begin
   FSession.FApplication := Application;
   FSession.ContentType := 'text/html';
   AccessThread := TCriticalSection.Create;
-  inherited Create(false);
+  inherited Create;
 end;
 
 // Destroys the TFCGIThread invoking the Thread Garbage Collector to free the associated objects
@@ -472,22 +459,44 @@ In this way a statefull and multi-thread behavior is provided.
 }
 function TFCGIThread.SetCurrentFCGIThread : boolean;
 var
-  Thread : string;
-  GUID : TGUID;
+  LPathInfo: string;
+  LPos: Integer;
+  LSessionId: string;
   I : integer;
 begin
   Result := true;
   Application.AccessThreads.Enter;
   try
-    Thread := FSession.Cookie['FCGIThread'];
-    if Thread = '' then begin
-      CreateGUID(GUID);
-      Thread := GUIDToString(GUID);
-      FSession.SetCookie('FCGIThread', Thread);
-      I := -1
+    // Extract optional namespace from URL. URLs come in the forms:
+    // /$<namespace> (root, with namespace)
+    // /$<namespace>/<methodname>
+    // / (root, no namespace)
+    // <methodname>
+    LPathInfo := FRequestHeader.Values['PATH_INFO'];
+    if Pos('/$', LPathInfo) = 1 then
+    begin
+      Delete(LPathInfo, 1, 1); // remove first /.
+      LPos := Pos('/', LPathInfo);
+      if LPos > 0 then
+        FSession.NameSpace := Copy(LPathInfo, 1, LPos - 1)
+      else
+        FSession.NameSpace := LPathInfo;
     end
     else
-      I := Application.Threads.IndexOf(Thread);
+      FSession.NameSpace := '';
+    FSession.ScriptName := FRequestHeader.Values['SCRIPT_NAME'];
+
+    LSessionId := FSession.SessionCookie;
+    if LSessionId = '' then begin
+      // No session - make a new one and send the cookie to the client.
+      LSessionId := FSession.CreateNewSessionId;
+      FSession.SessionCookie := LSessionId;
+      FSession.SessionGUID := LSessionId;
+      I := -1;
+    end
+    else
+      I := Application.FThreads.IndexOf(LSessionId);
+
     if I = -1 then begin
       FSession.NewThread := true;
       AccessThread.Enter;
@@ -496,20 +505,15 @@ begin
         Result := false;
       end
       else begin
-        Application.Threads.AddObject(Thread, Self);
+        Application.FThreads.AddObject(LSessionId, Self);
         FSession.AfterNewSession;
-      end;
-      with FSession do begin
-        FScriptName := Self.FRequestHeader.Values['SCRIPT_NAME'];
-        if (FScriptName = '') or (FScriptName[length(FScriptName)] <> '/') then FScriptName := FScriptName + '/';
       end;
     end
     else begin
-      _CurrentFCGIThread := TFCGIThread(Application.Threads.Objects[I]);
+      _CurrentFCGIThread := TFCGIThread(Application.FThreads.Objects[I]);
       _CurrentFCGIThread.AccessThread.Enter;
-      CurrentWebSession := _CurrentFCGIThread.FSession;
-      StrToTStrings(FRequestHeader.DelimitedText, _CurrentFCGIThread.FRequestHeader);
-      StrToTStrings(FSession.FCookies.DelimitedText, _CurrentFCGIThread.FSession.FCookies);
+      _CurrentWebSession := _CurrentFCGIThread.FSession;
+      _CurrentFCGIThread.CopyContextFrom(Self);
       _CurrentFCGIThread.FSession.NewThread := false;
       _CurrentFCGIThread.FSession.FCustomResponseHeaders.Clear;
       _CurrentFCGIThread.FSession.ContentType := 'text/html';
@@ -518,6 +522,12 @@ begin
   finally
     Application.AccessThreads.Leave;
   end;
+end;
+
+procedure TFCGIThread.CopyContextFrom(const AThread: TFCGIThread);
+begin
+  StrToTStrings(AThread.FRequestHeader.DelimitedText, FRequestHeader);
+  FSession.CopyContextFrom(AThread.FSession);
 end;
 
 {
@@ -537,14 +547,15 @@ On receive a request, each request, on its execution cycle, does:
 procedure TFCGIThread.Execute;
 var
   FCGIHeader : TFCGIHeader;
-  Buffer, Content : AnsiString;
-  I : integer;
+  Buffer, Content : RawByteString;
+  I: Integer;
 begin
   _CurrentFCGIThread := Self;
-  CurrentWebSession := FSession;
+  _CurrentWebSession := FSession;
   FRequest := '';
   try
     if Application.CanConnect(string(FSocket.GetHostAddress)) then
+    begin
       repeat
         if FSocket.WaitingData > 0 then begin
           Buffer := FSocket.RecvPacket;
@@ -558,19 +569,23 @@ begin
                 SendEndRequest(psCantMPXConn)
               else begin
                 inc(I, sizeof(FCGIHeader));
-                Content := copy(Buffer, I, FCGIHeader.Len);
+                Content := Copy(Buffer, I, FCGIHeader.Len);
                 case FCGIHeader.RecType of
                   rtBeginRequest : ReadBeginRequest(FCGIHeader, Content);
                   rtAbortRequest : FSession.Logout;
                   rtGetValues    : GetValues(Content);
                   rtParams, rtStdIn, rtData :
-                    if Content = '' then begin
-                      if FCGIHeader.RecType = rtParams then begin
+                    if Content = '' then
+                    begin
+                      if FCGIHeader.RecType = rtParams then
+                      begin
                         ReadRequestHeader(FRequestHeader, AnsiString(FRequest), True);
-                        if SetCurrentFCGIThread then begin
+                        if SetCurrentFCGIThread then
+                        begin
                           FSession.IsUpload := _CurrentFCGIThread.CompleteRequestHeaderInfo(Buffer, I);
                           FSession.MaxUploadSize := _CurrentFCGIThread.FSession.MaxUploadSize;
-                          if FSession.IsUpload then begin
+                          if FSession.IsUpload then
+                          begin
                             FSession.FFileUploaded := _CurrentFCGIThread.FSession.FFileUploaded;
                             FSession.FFileUploadedFullName := _CurrentFCGIThread.FSession.FFileUploadedFullName;
                             FSession.Response    := _CurrentFCGIThread.FSession.Response;
@@ -578,9 +593,10 @@ begin
                           end;
                         end
                         else
-                          break;
+                          Break;
                       end
-                      else begin
+                      else
+                      begin
                         _CurrentFCGIThread.FSession.IsUpload := FSession.IsUpload;
                         _CurrentFCGIThread.FSession.Response := FSession.Response;
                         FSession.Response := string(_CurrentFCGIThread.HandleRequest(AnsiString(FRequest)));
@@ -588,7 +604,8 @@ begin
                         FSession.ContentType := _CurrentFCGIThread.FSession.ContentType;
                         FGarbage := _CurrentFCGIThread.FGarbage;
                         FSession.IsDownload := _CurrentFCGIThread.FSession.IsDownload;
-                        if (FSession.Response <> '') or (RequestMethod in [rmGet, rmHead]) then begin
+                        if (FSession.Response <> '') or (RequestMethod in [rmGet, rmHead]) then
+                        begin
                           if FSession.IsDownload then
                             SendResponse(AnsiString(FSession.Response))
                           else
@@ -602,26 +619,30 @@ begin
                       if FSession.IsUpLoad then
                         FSession.UploadWriteFile(Content)
                       else
-                        FRequest := FRequest + string(Content);
+                      begin
+                        FRequest := FRequest + Content;
+                      end
                 else
                   SendResponse(AnsiChar(FCGIHeader.RecType), rtUnknown);
                   Buffer := '';
-                  sleep(200);
-                  break;
+                  Sleep(200);
+                  Break;
                 end;
               end;
-              inc(I, FCGIHeader.Len + FCGIHeader.PadLen);
+              Inc(I, FCGIHeader.Len + FCGIHeader.PadLen);
             end;
           end;
         end
         else
-          sleep(5);
-      until Terminated
+          Sleep(5);
+      until Terminated;
+    end
     else
       Terminate;
   except
-    on E : Exception do begin
-      Content := AnsiString(E.ClassName + ': ' + E.Message + ' at ' + IntToStr(integer(ExceptAddr)));
+    on E: Exception do
+    begin
+      Content := AnsiString(E.ClassName + ': ' + E.Message + ' at ' + IntToStr(Integer(ExceptAddr)));
       SendResponse(Content);
       SendResponse(Content, rtStdErr);
       SendEndRequest;
@@ -648,9 +669,8 @@ The published method will use the Request as input and the Response as output.
 }
 function TFCGIThread.HandleRequest(pRequest : AnsiString) : AnsiString; begin
   if (FRequestMethod = rmPost) and (Pos(AnsiString('='), pRequest) <> 0) then
-    FSession.SetQueryText(string(pRequest), True, True)
-  else
-    FRequest := string(pRequest);
+    FSession.SetQueryText(string(pRequest), True, True);
+  FRequest := pRequest;
   if not FSession.IsUpload then FSession.Response := '';
   FSession.IsDownload := false;
   FSession.HandleRequest(pRequest);
@@ -660,58 +680,9 @@ function TFCGIThread.HandleRequest(pRequest : AnsiString) : AnsiString; begin
     Result := FSession.EncodeResponse;
 end;
 
-{$IFDEF HAS_CONFIG}
-
-// Reads FastCGI port and Password from the configuration file
-procedure TFCGIApplication.ReadConfig;
-var
-  ConfigFile : string;
-begin
-  FConfig := nil;
-  ConfigFile := ChangeFileExt(ParamStr(0), {$IFDEF MSWINDOWS}'.ini'{$ELSE}'.conf'{$ENDIF});
-  if FileExists(ConfigFile) then begin
-    FConfig := TINIFile.Create(ConfigFile);
-    // changing below options requires restart
-    FPort := Config.ReadInteger('FCGI', 'Port', Port);
-    FPassword := Config.ReadString('FCGI', 'Password', Password);
-  end;
-end;
-
-{
-Reads MaxIdleTime, MaxConns, Shutdown and WServers fields from the config file
-@param AReload If true reload from disk
-}
-function TFCGIApplication.Reconfig(AReload : Boolean = true) : Boolean;
-var
-  H, M, S, MS : word;
-  ConfigFile, WServers : string;
-begin
-  Result := true;
-  if HasConfig then begin
-    // force refresh in-memory data
-    if AReload then begin
-      ConfigFile := Config.FileName;
-      Config.Free;
-      Sleep(100);
-      FConfig := TINIFile.Create(ConfigFile);
-    end;
-    DecodeTime(MaxIdleTime, H, M, S, MS);
-    MaxIdleTime := EncodeTime(0, Config.ReadInteger('FCGI', 'MaxIdle', M), 0, 0);
-    FMaxConns   := Config.ReadInteger('FCGI', 'MaxConn', MaxConns);
-    Shutdown    := Config.ReadBool('FCGI', 'AutoOff', Shutdown);
-    WServers    := Config.ReadString('FCGI', 'InServers', '');
-    if WServers <> '' then begin
-      if WebServers = nil then WebServers := TStringList.Create;
-      WebServers.DelimitedText := WServers;
-    end;
-  end;
-end;
-{$ENDIF}
-
 // Frees a TFCGIApplication
 destructor TFCGIApplication.Destroy; begin
-  {$IFDEF HAS_CONFIG}Config.Free;{$ENDIF}
-  Threads.Free;
+  FThreads.Free;
   AccessThreads.Free;
   WebServers.Free;
   inherited;
@@ -719,24 +690,25 @@ end;
 
 {
 Creates a FastCGI application instance.
-@param pTitle Application title used by <link TExtThread.AfterHandleRequest, AfterHandleRequest>
+@param pTitle Application title used by <link TExtSession.AfterHandleRequest, AfterHandleRequest>
 @param pFCGIThreadClass Thread class type to create when a new request arrives
 @param pPort TCP/IP port used to comunicate with the Web Server, default is 2014
 @param pMaxIdleMinutes Minutes of inactivity before the end of the thread, releasing it from memory, default is 30 minutes
 @param pShutdownAfterLastThreadDown If true Shutdown the application after the last thread to end, default is false. Good for commercial CGI hosting.
 @param pMaxConns Maximum accepted connections, default is 1000
 }
-constructor TFCGIApplication.Create(pTitle : string; ASessionClass: TCustomWebSessionClass; pPort : word = 2014;
-                                    pMaxIdleMinutes : word = 30; pShutdownAfterLastThreadDown : boolean = false;
-                                    pMaxConns : integer = 1000);
+constructor TFCGIApplication.Create(const AOwner: TComponent; pTitle : string;
+  ASessionClass: TCustomWebSessionClass; pPort : word = 2014;
+  pMaxIdleMinutes : word = 30; pShutdownAfterLastThreadDown : boolean = false;
+  pMaxConns : integer = 1000);
 var
   WServers : string;
 begin
-  inherited Create(pTitle, ASessionClass, pPort, pMaxIdleMinutes, pMaxConns);
+  inherited Create(AOwner, pTitle, ASessionClass, pPort, pMaxIdleMinutes, pMaxConns);
   Assert(Assigned(ASessionClass) and ASessionClass.InheritsFrom(TFCGISession));
-  Threads := TStringList.Create;
+  FThreads := TStringList.Create;
   AccessThreads := TCriticalSection.Create;
-  MaxIdleTime := EncodeTime(0, pMaxIdleMinutes, 0, 0);
+  MaxIdleTime := EncodeTime(pMaxIdleMinutes div 60, pMaxIdleMinutes mod 60, 0, 0);
   Shutdown := pShutdownAfterLastThreadDown;
   WServers := GetEnvironmentVariable('FCGI_WEB_SERVER_ADDRS');
   if WServers <> '' then begin
@@ -744,10 +716,6 @@ begin
     WebServers.DelimitedText := WServers;
   end;
   FExeName := ExtractFileName(ParamStr(0));
-  {$IFDEF HAS_CONFIG}
-  ReadConfig;
-  Reconfig(false);
-  {$ENDIF}
 end;
 
 {
@@ -764,7 +732,7 @@ Tests if MaxConns (max connections), default is 1000, was reached
 @return True if was reached
 }
 function TFCGIApplication.ReachedMaxConns : boolean; begin
-  Result := Threads.Count >= MaxConns
+  Result := FThreads.Count >= MaxConns
 end;
 
 // Thread Garbage Collector. Frees all expired threads
@@ -773,13 +741,16 @@ var
   I : integer;
   Thread : TFCGIThread;
 begin
-  for I := Threads.Count-1 downto 0 do begin
-    Thread := TFCGIThread(Threads.Objects[I]);
+  for I := FThreads.Count-1 downto 0 do begin
+    Thread := TFCGIThread(FThreads.Objects[I]);
     if (Now - Thread.LastAccess) > MaxIdleTime then begin
       AccessThreads.Enter;
-      Thread.Free;
-      Threads.Delete(I);
-      AccessThreads.Leave;
+      try
+        Thread.Free;
+        FThreads.Delete(I);
+      finally
+        AccessThreads.Leave;
+      end;
     end;
   end;
 end;
@@ -792,10 +763,10 @@ var
 begin
   AccessThreads.Enter;
   try
-    for I := Threads.Count - 1 downto 0 do begin
-      Thread := TFCGIThread(Threads.Objects[I]);
+    for I := FThreads.Count - 1 downto 0 do begin
+      Thread := TFCGIThread(FThreads.Objects[I]);
       Thread.Free;
-      Threads.Delete(I);
+      FThreads.Delete(I);
     end;
   finally
     AccessThreads.Leave;
@@ -811,7 +782,7 @@ Returns the Ith thread
 @param I Index of the thread to return
 }
 function TFCGIApplication.GetThread(I : integer) : TThread; begin
-  Result := TThread(Threads.Objects[I])
+  Result := TThread(FThreads.Objects[I])
 end;
 
 {
@@ -836,21 +807,6 @@ procedure TFCGIApplication.DoRun;
 var
   NewSocket, I : integer;
 begin
-  {$IFDEF HAS_CONFIG}
-  {$IFDEF CONFIG_MUST_EXIST}
-  if not HasConfig then begin
-    writeln('Config: Required configuration file is not found.');
-    sleep(10000);
-    exit;
-  end;
-  {$ENDIF}
-  if HasConfig then
-    if not Config.ReadBool('FCGI', 'Enabled', true) then begin
-      writeln('Config: Application is being disabled by config file.');
-      sleep(10000);
-      exit;
-    end;
-  {$ENDIF}
   I := 0;
   FThreadsCount := -1;
   with TBlockSocket.Create do begin
@@ -882,9 +838,11 @@ end;
 
 { TFCGISession }
 
-constructor TFCGISession.Create(AOwner : TObject); begin
+constructor TFCGISession.Create(AOwner: TObject);
+begin
+  Assert(AOwner is TFCGIThread);
+
   inherited Create(AOwner);
-  FOwner := AOwner as TFCGIThread;
 end;
 
 function TFCGISession.CanCallAfterHandleRequest : Boolean; begin
@@ -901,13 +859,13 @@ begin
   // being garbage collected in case the session is being freed by a
   // different thread. Otherwise objects don't mark themselves off the
   // GC upon destruction and risk to be destroyed multiple times.
-  CurrentWebSession := Self;
+  //_CurrentWebSession := Self;
   inherited;
 end;
 
 procedure TFCGISession.DoLogout; begin
   inherited;
-  TFCGIThread(FOwner).FGarbage := True;
+  TFCGIThread(Owner).FGarbage := True;
 end;
 
 procedure TFCGISession.DoSetCookie(const Name, ValueRaw : string); begin
@@ -915,7 +873,7 @@ procedure TFCGISession.DoSetCookie(const Name, ValueRaw : string); begin
 end;
 
 class function TFCGISession.GetCurrentWebSession : TCustomWebSession; begin
-  Result := CurrentWebSession;
+  Result := _CurrentWebSession;
 end;
 
 function TFCGISession.GetDocumentRoot : string; begin
@@ -924,8 +882,21 @@ function TFCGISession.GetDocumentRoot : string; begin
     Delete(Result, Length(Result), 1);
 end;
 
+function TFCGISession.GetRequestBody: string;
+var
+  LContent: RawByteString;
+  I: Integer;
+  LBytes: TBytes;
+begin
+  LContent := TFCGIThread(Owner).Request;
+  SetLength(LBytes, Length(LContent));
+  for I := 1 to Length(LContent) do
+    LBytes[I - 1] := Byte(LContent[I]);
+  Result := TEncoding.UTF8.GetString(LBytes);
+end;
+
 function TFCGISession.GetRequestHeader(const Name : string) : string; begin
-  Result := TFCGIThread(FOwner).FRequestHeader.Values[Name];
+  Result := TFCGIThread(Owner).FRequestHeader.Values[Name];
 end;
 
 function TFCGISession.GetWebServer : string; begin
@@ -934,7 +905,7 @@ function TFCGISession.GetWebServer : string; begin
 end;
 
 procedure TFCGISession.SendResponse(const Msg : AnsiString); begin
-  TFCGIThread(FOwner).SendResponse(Msg);
+  TFCGIThread(Owner).SendResponse(Msg);
 end;
 
 function TFCGISession.UploadBlockType(const Buffer : AnsiString; var MarkPos : Integer) : TUploadBlockType; begin

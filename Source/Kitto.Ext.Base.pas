@@ -21,7 +21,7 @@ unit Kitto.Ext.Base;
 interface
 
 uses
-  SysUtils,
+  SysUtils, Classes, Generics.Collections,
   ExtPascal, ExtPascalUtils, Ext, ExtForm, ExtUx,
   EF.Intf, EF.Tree, EF.ObserverIntf, EF.Classes,
   Kitto.Ext.Controller, Kitto.Metadata.Views;
@@ -32,27 +32,27 @@ type
     procedure Apply(const AProc: TProc<TExtObject>);
   end;
 
-  ///	<summary>
-  ///	  Base Ext window with subject, observer and controller capabilities.
-  ///	</summary>
+  /// <summary>
+  ///  Base Ext window with subject, observer and controller capabilities.
+  /// </summary>
   TKExtWindowControllerBase = class(TExtWindow, IInterface, IEFInterface, IEFSubject, IEFObserver, IKExtController)
-  private
+  strict private
     FSubjObserverImpl: TEFSubjectAndObserver;
     FView: TKView;
     FConfig: TEFNode;
     FContainer: TExtContainer;
     function GetView: TKView;
     function GetConfig: TEFNode;
-  protected
+  strict protected
     procedure SetView(const AValue: TKView);
     procedure DoDisplay; virtual;
     function GetContainer: TExtContainer;
     procedure SetContainer(const AValue: TExtContainer);
     procedure InitDefaults; override;
+    function GetControllerToRemove: TObject; virtual;
   public
     destructor Destroy; override;
 
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
     function AsObject: TObject;
@@ -60,34 +60,36 @@ type
     procedure DetachObserver(const AObserver: IEFObserver); virtual;
     procedure NotifyObservers(const AContext: string = ''); virtual;
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); virtual;
-    function SupportsContainer: Boolean;
+    class function SupportsContainer: Boolean;
     function IsSynchronous: Boolean;
+    property Config: TEFNode read GetConfig;
 
     property View: TKView read GetView write SetView;
     procedure Display;
   published
     procedure PanelClosed;
+    procedure WindowClosed;
   end;
 
-  {
-    A modal window used to host panels.
-  }
+  /// <summary>
+  ///  A modal window used to host panels.
+  /// </summary>
   TKExtModalWindow = class(TKExtWindowControllerBase)
   protected
     procedure InitDefaults; override;
   public
-    {
-      Call this after adding the panel so that the window can hook its
-      beforeclose event and close itself.
-    }
+    /// <summary>
+    ///  Call this after adding the panel so that the window can hook its
+    ///  beforeclose event and close itself.
+    /// <summary>
     procedure HookPanel(const APanel: TExtPanel);
   published
     procedure PanelClosed;
   end;
 
-  ///	<summary>
-  ///	  Base ext viewport with subject, observer and controller capabilities.
-  ///	</summary>
+  /// <summary>
+  ///  Base ext viewport with subject, observer and controller capabilities.
+  /// </summary>
   TKExtViewportControllerBase = class(TExtViewport, IInterface, IEFInterface, IEFSubject, IEFObserver, IKExtController)
   private
     FSubjObserverImpl: TEFSubjectAndObserver;
@@ -105,7 +107,6 @@ type
   public
     destructor Destroy; override;
 
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
     function AsObject: TObject;
@@ -113,29 +114,53 @@ type
     procedure DetachObserver(const AObserver: IEFObserver); virtual;
     procedure NotifyObservers(const AContext: string = ''); virtual;
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); virtual;
-    function SupportsContainer: Boolean;
+    class function SupportsContainer: Boolean;
     function IsSynchronous: Boolean;
 
     property View: TKView read GetView write SetView;
     procedure Display;
   end;
 
-  ///	<summary>
-  ///	  Base Ext panel with subject and observer capabilities.
-  ///	</summary>
+  /// <summary>
+  ///   Implemented by controllers that host panels and are able to close them
+  ///   on request, such as the TabPanel controller.
+  /// </summary>
+  IKExtPanelHost = interface(IEFInterface)
+    ['{F1DCE0C8-1CD9-4F97-9315-7FB2AC9CAADC}']
+    procedure ClosePanel(const APanel: TExtComponent);
+  end;
+
+  TKExtButton = class;
+
+  TKExtToolbar = class(TExtToolbar)
+  strict private
+    FButtonScale: string;
+  private
+    function GetVisibleButtonCount: Integer;
+  public
+    property ButtonScale: string read FButtonScale write FButtonScale;
+    function FindButton(const AUniqueId: string): TKExtButton;
+    property VisibleButtonCount: Integer read GetVisibleButtonCount;
+  end;
+
+  /// <summary>
+  ///   Base Ext panel with subject and observer capabilities.
+  /// </summary>
   TKExtPanelBase = class(TExtPanel, IInterface, IEFInterface, IEFSubject, IEFObserver)
   private
     FSubjObserverImpl: TEFSubjectAndObserver;
     FConfig: TEFNode;
   protected
     function GetConfig: TEFNode;
-    function CloseHostWindow: Boolean;
+    // Closes the hosting window or tab.
+    procedure CloseHostContainer;
     function GetHostWindow: TExtWindow;
     procedure InitDefaults; override;
+  strict protected
+    procedure LoadHtml(const AFileName: string; const APostProcessor: TFunc<string, string> = nil);
   public
     destructor Destroy; override;
 
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
     function AsObject: TObject;
@@ -147,16 +172,41 @@ type
     property Config: TEFNode read GetConfig;
   end;
 
-  TKExtActionButton = class(TExtButton)
+  TKExtButton = class(TExtButton, IEFSubject, IEFObserver)
+  strict private
+    FSubjObserverImpl: TEFSubjectAndObserver;
+    FUniqueId: string;
+  strict protected
+    function FindOwnerToolbar: TKExtToolbar;
+    function GetOwnerToolbar: TKExtToolbar;
+  protected
+    procedure InitDefaults; override;
+  public
+    destructor Destroy; override;
+    function AsObject: TObject;
+    procedure AttachObserver(const AObserver: IEFObserver); virtual;
+    procedure DetachObserver(const AObserver: IEFObserver); virtual;
+    procedure NotifyObservers(const AContext: string = ''); virtual;
+    procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); virtual;
+    // Unique Id of the button in its toolbar (if any).
+    property UniqueId: string read FUniqueId write FUniqueId;
+    procedure SetIconAndScale(const AIconName: string; const AScale: string = '');
+  end;
+
+  TKExtActionButton = class(TKExtButton)
   strict private
     FView: TKView;
+    FActionObserver: IEFObserver;
   strict protected
     procedure InitController(const AController: IKExtController); virtual;
     procedure SetView(const AValue: TKView); virtual;
+    procedure PerformBeforeExecute;
+    class procedure ExecuteHandler(const AButton: TKExtButton);
   public
     property View: TKView read FView write SetView;
+    property ActionObserver: IEFObserver read FActionObserver write FActionObserver;
   published
-    procedure ExecuteAction;
+    procedure ExecuteButtonAction; virtual;
   end;
 
   TKExtActionButtonClass = class of TKExtActionButton;
@@ -165,11 +215,13 @@ type
   strict private
     FView: TKView;
     FContainer: TExtContainer;
-    FTopToolbar: TExtToolbar;
+    FTopToolbar: TKExtToolbar;
     procedure CreateTopToolbar;
+    procedure EnsureAllSupportFiles;
   strict protected
-    function GetConfirmCall(const AMessage: string;
-      const AMethod: TExtProcedure): string;
+    procedure PerformDelayedClick(const AButton: TExtButton);
+    procedure ExecuteNamedAction(const AActionName: string); virtual;
+    function GetConfirmCall(const AMessage: string; const AMethod: TExtProcedure): string;
     function GetDefaultSplit: Boolean; virtual;
     function GetView: TKView;
     procedure SetView(const AValue: TKView);
@@ -178,40 +230,45 @@ type
     procedure SetContainer(const AValue: TExtContainer);
     property Container: TExtContainer read GetContainer write SetContainer;
     procedure InitSubController(const AController: IKExtController); virtual;
-    property TopToolbar: TExtToolbar read FTopToolbar;
+    property TopToolbar: TKExtToolbar read FTopToolbar;
     procedure BeforeCreateTopToolbar; virtual;
     procedure AfterCreateTopToolbar; virtual;
 
-    ///	<summary>Adds built-in buttons to the top toolbar.</summary>
+    /// <summary>
+    ///  Adds built-in buttons to the top toolbar.
+    /// </summary>
     procedure AddTopToolbarButtons; virtual;
 
-    ///	<summary>Adds ToolView buttons to the top toolbar. Called after
-    ///	AddTopToolbarButtons so that these stay at the end.</summary>
+    /// <summary>Adds ToolView buttons to the top toolbar. Called after
+    /// AddTopToolbarButtons so that these stay at the end.</summary>
     procedure AddTopToolbarToolViewButtons; virtual;
 
-    ///	<summary>Adds to the specified toolbar buttons for any ToolViews
-    ///	configured in the specified node.</summary>
-    ///	<param name="AConfigNode">ToolViews node. If nil or childrenless, no
-    ///	buttons are added.</param>
-    ///	<param name="AToolbar">Destination toolbar.</param>
-    procedure AddToolViewButtons(const AConfigNode: TEFNode; const AToolbar: TExtToolbar);
+    /// <summary>Adds to the specified toolbar buttons for any ToolViews
+    /// configured in the specified node.</summary>
+    /// <param name="AConfigNode">ToolViews node. If nil or childrenless, no
+    /// buttons are added.</param>
+    /// <param name="AToolbar">Destination toolbar.</param>
+    procedure AddToolViewButtons(const AConfigNode: TEFNode; const AToolbar: TKExtToolbar);
 
-    ///	<summary>Adds an action button representing the specified tool view to
-    ///	the specified toolbar. Override this method to create action buttons of
-    ///	classes inherited from the base TKExtActionButton.</summary>
-    function AddActionButton(const AView: TKView;
-      const AToolbar: TExtToolbar): TKExtActionButton; virtual;
+    /// <summary>
+    ///  Adds an action button representing the specified tool view to
+    ///  the specified toolbar. Override this method to create action buttons of
+    ///  classes inherited from the base TKExtActionButton.
+    /// </summary>
+    function AddActionButton(const AUniqueId: string; const AView: TKView;
+      const AToolbar: TKExtToolbar): TKExtActionButton; virtual;
   public
     destructor Destroy; override;
-    function SupportsContainer: Boolean; virtual;
     function IsSynchronous: Boolean;
     property View: TKView read GetView write SetView;
     procedure Display;
   end;
 
-  ///	<summary>Base class for controllers that don't have a specific visual
-  ///	representation, yet can be used to render views, such as custom action
-  ///	controllers.</summary>
+  /// <summary>
+  ///  Base class for controllers that don't have a specific visual
+  ///  representation, yet can be used to render views, such as custom action
+  ///  controllers.
+  /// </summary>
   TKExtControllerBase = class(TExtObject, IInterface, IEFInterface, IKExtController, IEFSubject, IEFObserver)
   private
     FSubjObserverImpl: TEFSubjectAndObserver;
@@ -230,10 +287,8 @@ type
   public
     destructor Destroy; override;
     function AsObject: TObject;
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
-    function SupportsContainer: Boolean; virtual;
     function IsSynchronous: Boolean; virtual;
     property View: TKView read GetView write SetView;
     procedure Display;
@@ -246,14 +301,39 @@ type
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); virtual;
   end;
 
-  ///	<summary>Base class for tool controllers.</summary>
+  /// <summary>
+  ///  Base class for tool controllers.
+  /// </summary>
   TKExtToolController = class(TKExtControllerBase)
-  protected
+  strict protected
+    function GetDisplayLabel: string;
     procedure ExecuteTool; virtual;
+    procedure AfterExecuteTool; virtual;
     procedure DoDisplay; override;
   public
-    function SupportsContainer: Boolean; override;
+    class function SupportsContainer: Boolean;
     function IsSynchronous: Boolean; override;
+    property DisplayLabel: string read GetDisplayLabel;
+  end;
+
+  /// <summary>
+  ///  Base class for tool controllers that display a (modal) window with
+  ///  a set of ok/cancel buttons.
+  /// </summary>
+  TKExtWindowToolController = class(TKExtWindowControllerBase)
+  strict private
+    FConfirmButton: TKExtButton;
+    FCancelButton: TKExtButton;
+    procedure CreateButtons;
+  strict protected
+    procedure SetWindowSize; virtual;
+    procedure InitDefaults; override;
+    procedure DoDisplay; override;
+    function GetConfirmJSCode: string; virtual;
+    procedure AfterExecuteTool; virtual;
+  published
+    procedure Confirm; virtual;
+    procedure Cancel;  virtual;
   end;
 
   TKExtFormComboBox = class(TExtFormComboBox, IInterface, IEFInterface, IEFSubject)
@@ -261,10 +341,10 @@ type
     FSubjObserverImpl: TEFSubjectAndObserver;
   protected
     procedure InitDefaults; override;
+    function GetEncodedValue: TExtFunction;
   public
     destructor Destroy; override;
     function AsObject: TObject; inline;
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
     procedure AttachObserver(const AObserver: IEFObserver); virtual;
@@ -280,7 +360,36 @@ type
   public
     destructor Destroy; override;
     function AsObject: TObject; inline;
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
+    procedure AttachObserver(const AObserver: IEFObserver); virtual;
+    procedure DetachObserver(const AObserver: IEFObserver); virtual;
+    procedure NotifyObservers(const AContext: string = ''); virtual;
+  end;
+
+  TKExtFormDateField = class(TExtFormDateField, IInterface, IEFInterface, IEFSubject)
+  private
+    FSubjObserverImpl: TEFSubjectAndObserver;
+  protected
+    procedure InitDefaults; override;
+  public
+    destructor Destroy; override;
+    function AsObject: TObject; inline;
+    function _AddRef: Integer; stdcall;
+    function _Release: Integer; stdcall;
+    procedure AttachObserver(const AObserver: IEFObserver); virtual;
+    procedure DetachObserver(const AObserver: IEFObserver); virtual;
+    procedure NotifyObservers(const AContext: string = ''); virtual;
+  end;
+
+  TKExtFormCheckBoxField = class(TExtFormCheckBox, IInterface, IEFInterface, IEFSubject)
+  private
+    FSubjObserverImpl: TEFSubjectAndObserver;
+  protected
+    procedure InitDefaults; override;
+  public
+    destructor Destroy; override;
+    function AsObject: TObject; inline;
     function _AddRef: Integer; stdcall;
     function _Release: Integer; stdcall;
     procedure AttachObserver(const AObserver: IEFObserver); virtual;
@@ -295,12 +404,40 @@ type
     procedure ClearStatus; virtual;
   end;
 
+function OptionAsLabelAlign(const AAlign: string): TExtFormFormPanelLabelAlign;
+function OptionAsGridColumnAlign(const AAlign: string): TExtGridColumnAlign;
+
 implementation
 
 uses
   StrUtils,
-  EF.StrUtils, EF.Types, EF.Localization,
-  Kitto.Ext.Utils, Kitto.Ext.Session;
+  EF.StrUtils, EF.Types, EF.Localization, EF.Macros,
+  Kitto.AccessControl, Kitto.Ext.Utils, Kitto.Ext.Session;
+
+function OptionAsGridColumnAlign(const AAlign: string): TExtGridColumnAlign;
+begin
+  //alLeft, alRight, alCenter
+  if SameText(AAlign, 'Left') then
+    Result := caLeft
+  else if SameText(AAlign, 'Right') then
+    Result := caRight
+  else if SameText(AAlign, 'Center') then
+    Result := caCenter
+  else
+    raise EEFError.CreateFmt(_('Invalid value %s. Valid values: "Left", "Right", "Center".'), [AAlign]);
+end;
+
+function OptionAsLabelAlign(const AAlign: string): TExtFormFormPanelLabelAlign;
+begin
+  if SameText(AAlign, 'Left') then
+    Result := laLeft
+  else if SameText(AAlign, 'Top') then
+    Result := laTop
+  else if SameText(AAlign, 'Right') then
+    Result := laRight
+  else
+    raise EEFError.CreateFmt(_('Invalid value %s. Valid values: "Left", "Top", "Right".'), [AAlign]);
+end;
 
 { TKExtWindowControllerBase }
 
@@ -330,11 +467,13 @@ end;
 procedure TKExtWindowControllerBase.Display;
 begin
   DoDisplay;
-  DoLayout;
+  On('render', DoLayout);
 end;
 
 procedure TKExtWindowControllerBase.DoDisplay;
 begin
+  Session.EnsureSupportFiles(TKExtControllerRegistry.Instance.FindClassId(Self.ClassType));
+  Session.EnsureViewSupportFiles(View);
   Show;
 end;
 
@@ -359,9 +498,13 @@ procedure TKExtWindowControllerBase.InitDefaults;
 begin
   inherited;
   FSubjObserverImpl := TEFSubjectAndObserver.Create;
-  Layout := lyBorder;
+  Layout := lyFit;
+  if Session.IsMobileBrowser then
+    Maximized := True;
   Border := False;
   Plain := True;
+
+  On('close', Ajax(WindowClosed, ['Window', JSName]));
 end;
 
 function TKExtWindowControllerBase.IsSynchronous: Boolean;
@@ -379,13 +522,6 @@ begin
   NotifyObservers('Closed');
 end;
 
-function TKExtWindowControllerBase.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  // Don't delegate to FSubjObserverImpl. We want to expose our own interfaces
-  // and get the callbacks.
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
-end;
-
 procedure TKExtWindowControllerBase.SetContainer(const AValue: TExtContainer);
 begin
   FContainer := AValue;
@@ -396,7 +532,7 @@ begin
   FView := AValue;
 end;
 
-function TKExtWindowControllerBase.SupportsContainer: Boolean;
+class function TKExtWindowControllerBase.SupportsContainer: Boolean;
 begin
   Result := False;
 end;
@@ -404,6 +540,16 @@ end;
 procedure TKExtWindowControllerBase.UpdateObserver(const ASubject: IEFSubject;
   const AContext: string);
 begin
+end;
+
+procedure TKExtWindowControllerBase.WindowClosed;
+begin
+  Session.RemoveController(GetControllerToRemove);
+end;
+
+function TKExtWindowControllerBase.GetControllerToRemove: TObject;
+begin
+  Result := Self;
 end;
 
 function TKExtWindowControllerBase._AddRef: Integer;
@@ -452,13 +598,6 @@ begin
   FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
 end;
 
-function TKExtPanelBase.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  // Don't delegate to FSubjObserverImpl. We want to expose our own interfaces
-  // and get the callbacks.
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
-end;
-
 procedure TKExtPanelBase.UpdateObserver(const ASubject: IEFSubject;
   const AContext: string);
 begin
@@ -486,14 +625,33 @@ begin
   Region := rgCenter;
 end;
 
-function TKExtPanelBase.CloseHostWindow: Boolean;
+procedure TKExtPanelBase.LoadHtml(const AFileName: string;
+  const APostProcessor: TFunc<string, string>);
+var
+  LFullFileName: string;
+  LHtml: string;
+begin
+  LFullFileName := Session.Config.FindResourcePathName(AFileName);
+  if LFullFileName <> '' then
+    LHtml := TEFMacroExpansionEngine.Instance.Expand(TextFileToString(LFullFileName, TEncoding.UTF8))
+  else
+    LHtml := '';
+  if Assigned(APostProcessor) then
+    LHtml := APostProcessor(LHtml);
+  Html := LHtml;
+end;
+
+procedure TKExtPanelBase.CloseHostContainer;
 var
   LHostWindow: TExtWindow;
+  LIntf: IKExtPanelHost;
 begin
+  { TODO : Perhaps we could unify the behaviour here by implementing IKExtPanelHost in a custom window class. }
   LHostWindow := GetHostWindow;
-  Result := Assigned(LHostWindow);
-  if Result then
-    LHostWindow.Close;
+  if Assigned(LHostWindow) then
+    LHostWindow.Close
+  else if Supports(Owner, IKExtPanelHost, LIntf) then
+    LIntf.ClosePanel(Self);
 end;
 
 { TKExtViewportControllerBase }
@@ -524,11 +682,13 @@ end;
 procedure TKExtViewportControllerBase.Display;
 begin
   DoDisplay;
-  DoLayout;
+  On('render', DoLayout);
 end;
 
 procedure TKExtViewportControllerBase.DoDisplay;
 begin
+  Session.EnsureSupportFiles(TKExtControllerRegistry.Instance.FindClassId(Self.ClassType));
+  Session.EnsureViewSupportFiles(View);
   Show;
 end;
 
@@ -566,13 +726,6 @@ begin
   FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
 end;
 
-function TKExtViewportControllerBase.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  // Don't delegate to FSubjObserverImpl. We want to expose our own interfaces
-  // and get the callbacks.
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
-end;
-
 procedure TKExtViewportControllerBase.SetContainer(const AValue: TExtContainer);
 begin
   FContainer := AValue;
@@ -583,7 +736,7 @@ begin
   FView := AValue;
 end;
 
-function TKExtViewportControllerBase.SupportsContainer: Boolean;
+class function TKExtViewportControllerBase.SupportsContainer: Boolean;
 begin
   Result := False;
 end;
@@ -609,7 +762,7 @@ procedure TKExtModalWindow.HookPanel(const APanel: TExtPanel);
 begin
   Assert(Assigned(APanel));
 
-  APanel.On('close', Ajax(PanelClosed, ['Panel', '%0.nm']));
+  APanel.On('close', Ajax(PanelClosed, ['Panel', APanel.JSName]));
 end;
 
 procedure TKExtModalWindow.InitDefaults;
@@ -649,6 +802,12 @@ begin
   FSubjObserverImpl.DetachObserver(AObserver);
 end;
 
+function TKExtFormComboBox.GetEncodedValue: TExtFunction;
+begin
+  ExtSession.ResponseItems.ExecuteJSCode(Self, Format('encodeURI(%s.getValue())', [JSName]));
+  Result := Self;
+end;
+
 procedure TKExtFormComboBox.InitDefaults;
 begin
   inherited;
@@ -658,11 +817,6 @@ end;
 procedure TKExtFormComboBox.NotifyObservers(const AContext: string);
 begin
   FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
-end;
-
-function TKExtFormComboBox.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
 end;
 
 function TKExtFormComboBox._AddRef: Integer;
@@ -690,12 +844,26 @@ begin
     if Config.GetBoolean('AllowClose', True) then
     begin
       Closable := True;
-      On('close', Container.Ajax('PanelClosed', ['Panel', '%0.nm']));
+      On('close', Container.Ajax('PanelClosed', ['Panel', JSName]));
     end
     else
       Closable := False;
   end;
   DoDisplay;
+end;
+
+procedure TKExtPanelControllerBase.EnsureAllSupportFiles;
+var
+  LClassType: TClass;
+begin
+  LClassType := ClassType;
+  Session.EnsureSupportFiles(TKExtControllerRegistry.Instance.FindClassId(LClassType));
+  while LClassType.ClassParent <> nil do
+  begin
+    LClassType := LClassType.ClassParent;
+    Session.EnsureSupportFiles(TKExtControllerRegistry.Instance.FindClassId(LClassType));
+  end;
+  Session.EnsureViewSupportFiles(View);
 end;
 
 procedure TKExtPanelControllerBase.DoDisplay;
@@ -708,9 +876,17 @@ var
   LHeader: TEFNode;
   LWidthStr: string;
   LHeightStr: string;
+  LView: TKView;
+  LBodyStyle: string;
 begin
+  EnsureAllSupportFiles;
+
   if Title = '' then
-    Title := _(Config.GetExpandedString('Title', View.DisplayLabel));
+  begin
+    LView := View;
+    if Assigned(LView) then
+      Title := _(Config.GetExpandedString('Title', LView.DisplayLabel));
+  end;
 
   LWidthStr := Config.GetString('Width');
   if TryStrToInt(LWidthStr, LWidth) then
@@ -724,7 +900,7 @@ begin
       AutoWidth := True;
   end
   else if LWidthStr <> '' then
-    JSCode('width: ' + LWidthStr);
+    WidthString := LWidthStr;
 
   LHeightStr := Config.GetString('Height');
   if TryStrToInt(LHeightStr, LHeight) then
@@ -735,7 +911,7 @@ begin
       AutoHeight := True;
   end
   else if LHeightStr <> '' then
-    JSCode('height: ' + LHeightStr);
+    HeightString := LHeightStr;
 
   LSplit := Config.FindNode('Split');
   if Assigned(LSplit) then
@@ -762,14 +938,27 @@ begin
     Header := False;
 
   CreateTopToolbar;
+
+  LBodyStyle := Config.GetExpandedString('BodyStyle');
+  if LBodyStyle <> '' then
+    BodyStyle := LBodyStyle;
+end;
+
+procedure TKExtPanelControllerBase.ExecuteNamedAction(const AActionName: string);
+var
+  LToolButton: TKExtButton;
+begin
+  LToolButton := FTopToolbar.FindButton(AActionName);
+  if Assigned(LToolButton) then
+    PerformDelayedClick(LToolButton);
 end;
 
 procedure TKExtPanelControllerBase.AddTopToolbarButtons;
 begin
 end;
 
-function TKExtPanelControllerBase.AddActionButton(
-  const AView: TKView; const AToolbar: TExtToolbar): TKExtActionButton;
+function TKExtPanelControllerBase.AddActionButton(const AUniqueId: string;
+  const AView: TKView; const AToolbar: TKExtToolbar): TKExtActionButton;
 var
   LConfirmationMessage: string;
   LConfirmationJS: string;
@@ -777,35 +966,39 @@ begin
   Assert(Assigned(AView));
   Assert(Assigned(AToolbar));
 
-  Result := TKExtActionButton.AddTo(AToolbar.Items);
+  Result := TKExtActionButton.CreateAndAddTo(AToolbar.Items);
+  Result.Hidden := not AView.GetBoolean('IsVisible', True);
+  Result.UniqueId := AUniqueId;
   Result.View := AView;
+  Result.ActionObserver := Self;
 
   // A Tool may or may not have a confirmation message.
   LConfirmationMessage := AView.GetExpandedString('Controller/ConfirmationMessage');
-  LConfirmationJS := GetConfirmCall(LConfirmationMessage, Result.ExecuteAction);
+  LConfirmationJS := GetConfirmCall(LConfirmationMessage, Result.ExecuteButtonAction);
   if LConfirmationMessage <> '' then
-    Result.Handler := JSFunction(LConfirmationJS)
+    Result.On('click', JSFunction(LConfirmationJS))
   else
-    Result.On('click', Ajax(Result.ExecuteAction, []));
+    Result.On('click', Ajax(Result.ExecuteButtonAction, []));
 end;
 
 procedure TKExtPanelControllerBase.AddToolViewButtons(
-  const AConfigNode: TEFNode; const AToolbar: TExtToolbar);
+  const AConfigNode: TEFNode; const AToolbar: TKExtToolbar);
 var
   I: Integer;
   LView: TKView;
-  //LToolButton: TKExtActionButton;
+  LNode: TEFNode;
 begin
   Assert(Assigned(AToolbar));
 
   if Assigned(AConfigNode) and (AConfigNode.ChildCount > 0) then
   begin
-    TExtToolbarSeparator.AddTo(AToolbar.Items);
+    TExtToolbarSeparator.CreateAndAddTo(AToolbar.Items);
     for I := 0 to AConfigNode.ChildCount - 1 do
     begin
-      LView := Session.Config.Views.ViewByNode(AConfigNode.Children[I]);
-      {LToolButton := }AddActionButton(LView, AToolbar);
-      TExtToolbarSpacer.AddTo(AToolbar.Items);
+      LNode := AConfigNode.Children[I];
+      LView := Session.Config.Views.ViewByNode(LNode);
+      if LView.IsAccessGranted(ACM_VIEW) then
+        AddActionButton(LNode.Name, LView, AToolbar);
     end;
   end;
 end;
@@ -833,8 +1026,11 @@ procedure TKExtPanelControllerBase.CreateTopToolbar;
 begin
   BeforeCreateTopToolbar;
 
-  FTopToolbar := TExtToolbar.Create;
+  FTopToolbar := TKExtToolbar.Create(Self);
   try
+    FTopToolbar.ButtonScale := Config.GetString('ToolButtonScale',
+      IfThen(Session.IsMobileBrowser, 'large', 'small'));
+    FTopToolbar.AutoScroll := Session.IsMobileBrowser;
     AddTopToolbarButtons;
     AddTopToolbarToolViewButtons;
   except
@@ -844,7 +1040,11 @@ begin
   if FTopToolbar.Items.Count = 0 then
     FreeAndNil(FTopToolbar)
   else
+  begin
+    if FTopToolbar.VisibleButtonCount = 0 then
+      FTopToolbar.Hidden := True;
     Tbar := FTopToolbar;
+  end;
   AfterCreateTopToolbar;
 end;
 
@@ -863,8 +1063,7 @@ begin
   Result := FView;
 end;
 
-procedure TKExtPanelControllerBase.InitSubController(
-  const AController: IKExtController);
+procedure TKExtPanelControllerBase.InitSubController(const AController: IKExtController);
 var
   LSysConfigNode: TEFNode;
 begin
@@ -880,6 +1079,12 @@ begin
   Result := False;
 end;
 
+procedure TKExtPanelControllerBase.PerformDelayedClick(const AButton: TExtButton);
+begin
+  if Assigned(AButton) then
+    AButton.On('render', JSFunction(AButton.PerformClick));
+end;
+
 procedure TKExtPanelControllerBase.SetContainer(const AValue: TExtContainer);
 begin
   FContainer := AValue;
@@ -888,11 +1093,6 @@ end;
 procedure TKExtPanelControllerBase.SetView(const AValue: TKView);
 begin
   FView := AValue;
-end;
-
-function TKExtPanelControllerBase.SupportsContainer: Boolean;
-begin
-  Result := True;
 end;
 
 { TKExtFormTextField }
@@ -929,17 +1129,100 @@ begin
   FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
 end;
 
-function TKExtFormTextField.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
-end;
-
 function TKExtFormTextField._AddRef: Integer;
 begin
   Result := -1;
 end;
 
 function TKExtFormTextField._Release: Integer;
+begin
+  Result := -1;
+end;
+
+{ TKExtFormDateField }
+
+function TKExtFormDateField.AsObject: TObject;
+begin
+  Result := Self;
+end;
+
+procedure TKExtFormDateField.AttachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.AttachObserver(AObserver);
+end;
+
+destructor TKExtFormDateField.Destroy;
+begin
+  FreeAndNil(FSubjObserverImpl);
+  inherited;
+end;
+
+procedure TKExtFormDateField.DetachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.DetachObserver(AObserver);
+end;
+
+procedure TKExtFormDateField.InitDefaults;
+begin
+  inherited;
+  FSubjObserverImpl := TEFSubjectAndObserver.Create;
+end;
+
+procedure TKExtFormDateField.NotifyObservers(const AContext: string);
+begin
+  FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
+end;
+
+function TKExtFormDateField._AddRef: Integer;
+begin
+  Result := -1;
+end;
+
+function TKExtFormDateField._Release: Integer;
+begin
+  Result := -1;
+end;
+
+{ TKExtFormCheckBoxField }
+
+function TKExtFormCheckBoxField.AsObject: TObject;
+begin
+  Result := Self;
+end;
+
+procedure TKExtFormCheckBoxField.AttachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.AttachObserver(AObserver);
+end;
+
+destructor TKExtFormCheckBoxField.Destroy;
+begin
+  FreeAndNil(FSubjObserverImpl);
+  inherited;
+end;
+
+procedure TKExtFormCheckBoxField.DetachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.DetachObserver(AObserver);
+end;
+
+procedure TKExtFormCheckBoxField.InitDefaults;
+begin
+  inherited;
+  FSubjObserverImpl := TEFSubjectAndObserver.Create;
+end;
+
+procedure TKExtFormCheckBoxField.NotifyObservers(const AContext: string);
+begin
+  FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
+end;
+
+function TKExtFormCheckBoxField._AddRef: Integer;
+begin
+  Result := -1;
+end;
+
+function TKExtFormCheckBoxField._Release: Integer;
 begin
   Result := -1;
 end;
@@ -995,6 +1278,8 @@ end;
 
 procedure TKExtControllerBase.DoDisplay;
 begin
+  Session.EnsureSupportFiles(TKExtControllerRegistry.Instance.FindClassId(Self.ClassType));
+  Session.EnsureViewSupportFiles(View);
 end;
 
 function TKExtControllerBase.GetConfig: TEFNode;
@@ -1030,11 +1315,6 @@ begin
   FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
 end;
 
-function TKExtControllerBase.QueryInterface(const IID: TGUID; out Obj): HRESULT;
-begin
-  if GetInterface(IID, Obj) then Result := 0 else Result := E_NOINTERFACE;
-end;
-
 procedure TKExtControllerBase.SetContainer(const AValue: TExtContainer);
 begin
   FContainer := AValue;
@@ -1043,11 +1323,6 @@ end;
 procedure TKExtControllerBase.SetView(const AValue: TKView);
 begin
   FView := AValue;
-end;
-
-function TKExtControllerBase.SupportsContainer: Boolean;
-begin
-  Result := True;
 end;
 
 procedure TKExtControllerBase.UpdateObserver(const ASubject: IEFSubject;
@@ -1071,20 +1346,33 @@ procedure TKExtToolController.ExecuteTool;
 begin
 end;
 
+function TKExtToolController.GetDisplayLabel: string;
+begin
+  if Assigned(View) then
+    Result := Config.GetExpandedString('Title', View.DisplayLabel)
+  else
+    Result := '';
+end;
+
 function TKExtToolController.IsSynchronous: Boolean;
 begin
   Result := True;
 end;
 
-function TKExtToolController.SupportsContainer: Boolean;
+class function TKExtToolController.SupportsContainer: Boolean;
 begin
   Result := False;
+end;
+
+procedure TKExtToolController.AfterExecuteTool;
+begin
 end;
 
 procedure TKExtToolController.DoDisplay;
 begin
   inherited;
   ExecuteTool;
+  AfterExecuteTool;
   //NotifyObservers('Closed');
 end;
 
@@ -1106,34 +1394,252 @@ end;
 
 { TKExtActionButton }
 
-procedure TKExtActionButton.ExecuteAction;
+procedure TKExtActionButton.ExecuteButtonAction;
 var
   LController: IKExtController;
 begin
   Assert(Assigned(FView));
+  Assert(Assigned(FActionObserver));
 
-  LController := TKExtControllerFactory.Instance.CreateController(FView, nil);
+  LController := TKExtControllerFactory.Instance.CreateController(
+    Session.ObjectCatalog, FView, nil, nil, FActionObserver);
   InitController(LController);
   LController.Display;
+end;
+
+class procedure TKExtActionButton.ExecuteHandler(const AButton: TKExtButton);
+var
+  LResponseItemBranch: TExtResponseItems;
+begin
+  if AButton is TKExtActionButton then
+  begin
+    LResponseItemBranch := AButton.Session.BranchResponseItems;
+    try
+      TKExtActionButton(AButton).ExecuteButtonAction;
+    finally
+      AButton.Session.UnbranchResponseItems(LResponseItemBranch, False); // throw away
+    end;
+  end;
 end;
 
 procedure TKExtActionButton.InitController(const AController: IKExtController);
 begin
 end;
 
+procedure TKExtActionButton.PerformBeforeExecute;
+var
+  LUniqueId: string;
+  LBeforeExecuteNode, LChildNode: TEFNode;
+  I: Integer;
+  LButton: TKExtButton;
+begin
+  LBeforeExecuteNode := View.FindNode('BeforeExecute');
+  if Assigned(LBeforeExecuteNode) then
+  begin
+    for I := 0 to LBeforeExecuteNode.ChildCount-1 do
+    begin
+      LChildNode := LBeforeExecuteNode.Children[I];
+      if SameText(LChildNode.Name, 'ToolView') then
+      begin
+        LUniqueId := LChildNode.AsString;
+        if LUniqueId <> '' then
+        begin
+          LButton := GetOwnerToolbar.FindButton(LUniqueId);
+          if Assigned(LButton) then
+            ExecuteHandler(LButton as TKExtActionButton);
+        end;
+      end;
+    end;
+  end;
+end;
+
 procedure TKExtActionButton.SetView(const AValue: TKView);
 var
-  LTooltip: string;
+  LTooltip, LIconName: string;
 begin
   Assert(Assigned(AValue));
 
   FView := AValue;
-
   Text := _(FView.DisplayLabel);
-  Icon := Session.Config.GetImageURL(FView.ImageName);
+
+  LIconName := FView.GetString('ImageName');
+  if LIconName = '' then
+    LIconName := CallViewControllerStringMethod(FView, 'GetDefaultImageName', '');
+  if LIconName = '' then
+    LIconName := FView.ImageName;
+
+  SetIconAndScale(LIconName);
+
   LTooltip := FView.GetExpandedString('Hint');
   if LTooltip <> '' then
     Tooltip := LTooltip;
+end;
+
+{ TKExtWindowToolController }
+
+procedure TKExtWindowToolController.AfterExecuteTool;
+begin
+  NotifyObservers('Confirmed');
+  Close;
+end;
+
+procedure TKExtWindowToolController.Cancel;
+begin
+  NotifyObservers('Canceled');
+  Close;
+end;
+
+procedure TKExtWindowToolController.Confirm;
+begin
+  AfterExecuteTool;
+end;
+
+procedure TKExtWindowToolController.CreateButtons;
+begin
+  FConfirmButton := TKExtButton.CreateAndAddTo(Buttons);
+  FConfirmButton.SetIconAndScale('accept', Config.GetString('ButtonScale', 'medium'));
+  FConfirmButton.FormBind := True;
+  FConfirmButton.Text := Config.GetString('ConfirmButton/Caption', _('Confirm'));
+  FConfirmButton.Tooltip := Config.GetString('ConfirmButton/Tooltip', _('Confirm action and close window'));
+  FConfirmButton.Handler := JSFunction(GetConfirmJSCode());
+
+  FCancelButton := TKExtButton.CreateAndAddTo(Buttons);
+  FCancelButton.SetIconAndScale('cancel', Config.GetString('ButtonScale', 'medium'));
+  FCancelButton.Text := _('Cancel');
+  FCancelButton.Tooltip := _('Cancel changes');
+  FCancelButton.Handler := Ajax(Cancel);
+end;
+
+procedure TKExtWindowToolController.DoDisplay;
+begin
+  inherited;
+  Title := View.DisplayLabel;
+  CreateButtons;
+end;
+
+function TKExtWindowToolController.GetConfirmJSCode: string;
+begin
+  Result := GetPOSTAjaxCode(Confirm, [], '');
+end;
+
+procedure TKExtWindowToolController.InitDefaults;
+begin
+  inherited;
+  Modal := True;
+  Closable := False;
+  SetWindowSize;
+  Layout := lyFit;
+end;
+
+procedure TKExtWindowToolController.SetWindowSize;
+begin
+  Width := 400;
+  Height := 200;
+  Resizable := False;
+end;
+
+{ TKExtButton }
+
+function TKExtButton.AsObject: TObject;
+begin
+  Result := Self;
+end;
+
+procedure TKExtButton.AttachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.AttachObserver(AObserver);
+end;
+
+destructor TKExtButton.Destroy;
+begin
+  FreeAndNil(FSubjObserverImpl);
+  inherited;
+end;
+
+procedure TKExtButton.DetachObserver(const AObserver: IEFObserver);
+begin
+  FSubjObserverImpl.DetachObserver(AObserver);
+end;
+
+function TKExtButton.FindOwnerToolbar: TKExtToolbar;
+begin
+  if (Owner is TExtObjectList) and (TExtObjectList(Owner).Owner is TKExtToolbar) then
+    Result := TKExtToolbar(TExtObjectList(Owner).Owner)
+  else
+    Result := nil;
+end;
+
+function TKExtButton.GetOwnerToolbar: TKExtToolbar;
+begin
+  Result := FindOwnerToolbar;
+  if Result = nil then
+    raise Exception.Create('Owner Toolbar not found');
+end;
+
+procedure TKExtButton.InitDefaults;
+begin
+  inherited;
+  FSubjObserverImpl := TEFSubjectAndObserver.Create;
+end;
+
+procedure TKExtButton.NotifyObservers(const AContext: string);
+begin
+  FSubjObserverImpl.NotifyObserversOnBehalfOf(Self, AContext);
+end;
+
+procedure TKExtButton.SetIconAndScale(const AIconName: string; const AScale: string);
+var
+  LIconURL: string;
+  LToolbar: TKExtToolbar;
+begin
+  LToolbar := FindOwnerToolbar;
+
+  if AScale <> '' then
+    Scale := AScale
+  else if Assigned(LToolbar) and (LToolbar.ButtonScale <> '') then
+    Scale := LToolbar.ButtonScale
+  else
+    Scale := 'small';
+
+  LIconURL := Session.Config.FindImageURL(SmartConcat(AIconName, '_', Scale));
+  if LIconURL = '' then
+    LIconURL := Session.Config.FindImageURL(AIconName);
+
+  Icon := LIconURL;
+end;
+
+procedure TKExtButton.UpdateObserver(const ASubject: IEFSubject;
+  const AContext: string);
+begin
+end;
+
+{ TKExtToolbar }
+
+function TKExtToolbar.FindButton(const AUniqueId: string): TKExtButton;
+var
+  I: Integer;
+begin
+  Result := nil;
+  for I := 0 to Items.Count - 1 do
+  begin
+    if (Items[I] is TKExtButton) and SameText(TKExtButton(Items[I]).UniqueId, AUniqueId) then
+     begin
+       Result := TKExtButton(Items[I]);
+       Break;
+     end;
+  end;
+end;
+
+function TKExtToolbar.GetVisibleButtonCount: Integer;
+var
+  I: Integer;
+begin
+  Result := 0;
+  for I := 0 to Items.Count - 1 do
+  begin
+    if Items[I] is TKExtButton and not (TKExtButton(Items[I]).Hidden) then
+      Inc(Result);
+  end;
 end;
 
 end.

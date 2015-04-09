@@ -21,63 +21,78 @@ unit Kitto.Ext.DataPanelLeaf;
 interface
 
 uses
-  Kitto.Ext.DataPanel;
+  SysUtils,
+  Ext,
+  EF.ObserverIntf,
+  Kitto.Ext.Base, Kitto.Ext.DataPanel;
 
 type
-  ///	<summary>Base class for concrete data panels that handle database records.</summary>
+  /// <summary>
+  ///  Base class for concrete data panels that handle database records.
+  /// </summary>
   TKExtDataPanelLeafController = class abstract(TKExtDataPanelController)
   strict private
-    FFilterExpression: string;
+    FRefreshButton: TKExtButton;
   strict protected
-    procedure DoDisplay; override;
-    function GetFilterExpression: string; override;
     procedure AddTopToolbarButtons; override;
+    procedure ExecuteNamedAction(const AActionName: string); override;
   public
-    procedure RefilterData(const AFilterExpression: string); override;
-    procedure LoadData(const AFilterExpression: string); override;
+    procedure UpdateObserver(const ASubject: IEFSubject;
+      const AContext: string = ''); override;
   published
-    procedure RefreshData; override;
+    procedure LoadData; override;
+    procedure DoDisplay; override;
   end;
 
 implementation
 
 uses
-  Ext, ExtPascal,
+  ExtPascal,
   EF.Localization,
+  Kitto.Metadata.Views,
   Kitto.AccessControl, Kitto.Ext.Session;
 
 { TKExtDataPanelLeafController }
 
 procedure TKExtDataPanelLeafController.DoDisplay;
+var
+  LActionCommand: string;
 begin
   inherited;
-  // See mantis # 944
-//  CheckCanRead;
-//  if AutoLoadData then
-//    LoadData('');
+  LActionCommand := Session.Queries.Values['action'];
+(* TODO multiple actions separated by comma: actually don't work
+  while LActionCommand <> '' do
+  begin
+    p := pos(',', LActionCommand);
+    if p > 0 then
+    begin
+      LSingleAction := Copy(LActionCommand,1,p-1);
+      LActionCommand := Copy(LActionCommand,p+1,MaxInt);
+    end
+    else
+    begin
+      LSingleAction := LActionCommand;
+      LActionCommand := '';
+    end;
+    ExecuteNamedAction(LSingleAction);
+  end;
+*)
+  if LActionCommand <> '' then
+  begin
+    Session.Queries.Values['action'] := '';
+    ExecuteNamedAction(LActionCommand);
+  end;
 end;
 
-function TKExtDataPanelLeafController.GetFilterExpression: string;
+procedure TKExtDataPanelLeafController.ExecuteNamedAction(const AActionName: string);
 begin
-  Result := FFilterExpression;
+  if (AActionName = 'Refresh') and Assigned(FRefreshButton) then
+    FRefreshButton.PerformClick
+  else
+    inherited;
 end;
 
-procedure TKExtDataPanelLeafController.LoadData(const AFilterExpression: string);
-begin
-  inherited;
-  FFilterExpression := AFilterExpression;
-  RefreshData;
-end;
-
-procedure TKExtDataPanelLeafController.RefilterData(
-  const AFilterExpression: string);
-begin
-  inherited;
-  FFilterExpression := AFilterExpression;
-  RefreshData;
-end;
-
-procedure TKExtDataPanelLeafController.RefreshData;
+procedure TKExtDataPanelLeafController.LoadData;
 begin
   inherited;
   Assert(Assigned(ClientStore));
@@ -85,16 +100,23 @@ begin
   ClientStore.Load(JSObject('params:{start:0,limit:0,Obj:"' + JSName + '"}'));
 end;
 
-procedure TKExtDataPanelLeafController.AddTopToolbarButtons;
-var
-  LRefreshButton: TExtButton;
+procedure TKExtDataPanelLeafController.UpdateObserver(
+  const ASubject: IEFSubject; const AContext: string);
 begin
-  TExtToolbarSpacer.AddTo(TopToolbar.Items);
-  LRefreshButton := TExtButton.AddTo(TopToolbar.Items);
-  LRefreshButton.Tooltip := _('Refresh');
-  LRefreshButton.Icon := Session.Config.GetImageURL('refresh');
-  LRefreshButton.Handler := Ajax(TKExtDataPanelController(Config.GetObject('Sys/RefreshHandler', Self)).RefreshData);
-  LRefreshButton.Tooltip := _('Refresh data');
+  inherited;
+  if AContext = 'RefreshAllRecords' then
+    TKExtDataPanelController(Config.GetObject('Sys/ParentDataPanel', Self)).LoadData;
+end;
+
+procedure TKExtDataPanelLeafController.AddTopToolbarButtons;
+begin
+  TExtToolbarSpacer.CreateAndAddTo(TopToolbar.Items);
+  FRefreshButton := TKExtButton.CreateAndAddTo(TopToolbar.Items);
+  FRefreshButton.SetIconAndScale('refresh');
+  FRefreshButton.Tooltip := _('Refresh data');
+  FRefreshButton.On('click', Ajax(TKExtDataPanelController(Config.GetObject('Sys/ParentDataPanel', Self)).LoadData));
+  if ViewTable.GetBoolean('Controller/PreventRefreshing') then
+    FRefreshButton.Hidden := True;
   inherited;
 end;
 

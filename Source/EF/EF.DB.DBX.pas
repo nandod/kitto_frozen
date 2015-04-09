@@ -30,8 +30,8 @@ uses
 
 type
   ///	<summary>
-  ///	  Retrieves metadata from a database through DBX. Currently, only
-  ///	  Firebird is supported.
+  ///	  Retrieves metadata from a database through DBX. Should support all
+  ///   databases supported by DBX, depending on the driver used.
   ///	</summary>
   TEFDBDBXInfo = class(TEFDBInfo)
   private
@@ -103,6 +103,7 @@ type
     function FetchSequenceGeneratorValue(const ASequenceName: string): Int64; override;
     function CreateDBCommand: TEFDBCommand; override;
     function CreateDBQuery: TEFDBQuery; override;
+    function GetConnection: TObject; override;
   end;
 
   ///	<summary>Customized TSQLQuery used inside TEFDBXCommand and
@@ -273,6 +274,11 @@ begin
     raise EEFError.Create(_('Unspecified Statement text.'));
 
   Result := FConnection.ExecuteDirect(AStatement);
+end;
+
+function TEFDBDBXConnection.GetConnection: TObject;
+begin
+  Result := FConnection;
 end;
 
 function TEFDBDBXConnection.GetFetchSequenceGeneratorValueQuery(
@@ -562,7 +568,17 @@ procedure TEFDBDBXQuery.Open;
 begin
   Connection.Open;
   Connection.DBEngineType.BeforeExecute(FQuery.SQL.Text, FQuery.Params);
-  DataSet.Open;
+  try
+    DataSet.Open;
+  except
+    on E: Exception do
+    begin
+      raise EEFError.Create(_(Format('Error "%s" opening query: %s.',
+        [E.Message, FQuery.SQL.Text])));
+    end
+    else
+      raise;
+  end;
 end;
 
 procedure TEFDBDBXQuery.SetCommandText(const AValue: string);

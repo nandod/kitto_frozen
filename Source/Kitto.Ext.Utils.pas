@@ -24,7 +24,7 @@ uses
   SysUtils,
   Ext, ExtPascal, ExtPascalUtils, ExtMenu, ExtTree,
   EF.ObserverIntf, EF.Tree,
-  Kitto.Ext.Controller, Kitto.Metadata.Views;
+  Kitto.Ext.Base, Kitto.Ext.Controller, Kitto.Metadata.Views, Kitto.Ext.Session;
 
 type
   TKExtTreeTreeNode = class(TExtTreeTreeNode)
@@ -35,7 +35,7 @@ type
     property View: TKView read FView write SetView;
   end;
 
-  TKExtButton = class(TExtButton)
+  TKExtViewButton = class(TKExtButton)
   private
     FView: TKView;
     procedure SetView(const AValue: TKView);
@@ -60,13 +60,25 @@ type
     FOwner: TExtObject;
     FClickHandler: TExtProcedure;
     FAddedItems: Integer;
-    procedure AddButton(const ANode: TKTreeViewNode; const AContainer: TExtContainer);
+    FSession: TKExtSession;
+    procedure AddButton(const ANode: TKTreeViewNode; const ADisplayLabel: string; const AContainer: TExtContainer);
     procedure AddMenuItem(const ANode: TKTreeViewNode; const AMenu: TExtMenuMenu);
-    procedure AddNode(const ANode: TKTreeViewNode; const AParent: TExtTreeTreeNode);
+    procedure AddNode(const ANode: TKTreeViewNode; const ADisplayLabel: string; const AParent: TExtTreeTreeNode);
     function GetClickFunction(const AView: TKView): TExtFunction;
 
-    function FindView(const ANode: TKTreeViewNode): TKView;
+    ///	<summary>
+    ///   Clones the specified tree view, filters all invisible items
+    ///	  (including folders containing no visible items) and returns the
+    ///	  clone.
+    /// </summary>
+    ///	<remarks>
+    ///   The caller is responsible for freeing the returned object.
+    /// </remarks>
+    function CloneAndFilter(const ATreeView: TKTreeView): TKTreeView;
+    procedure Filter(const ANode: TKTreeViewNode);
   public
+    property Session: TKExtSession read FSession write FSession;
+
     ///	<summary>
     ///	  Attaches to the container a set of buttons, one for each top-level
     ///	  element of the specified tree view. Each button has a submenu tree
@@ -83,6 +95,12 @@ type
     ///	</summary>
     function RenderAsTree(const ATreeView: TKTreeView; const ARoot: TExtTreeTreeNode;
       const AOwner: TExtObject; const AClickHandler: TExtProcedure): Integer;
+
+    ///	<summary>
+    ///	  Renders a tree by calling AProc for each top-level element in the tree view.
+    ///	</summary>
+    function Render(const ATreeView: TKTreeView; const AProc: TProc<TKTreeViewNode, string>;
+      const AOwner: TExtObject; const AClickHandler: TExtProcedure): Integer;
   end;
 
 function DelphiDateTimeFormatToJSDateTimeFormat(const ADateTimeFormat: string): string;
@@ -94,12 +112,25 @@ function DelphiTimeFormatToJSTimeFormat(const ATimeFormat: string): string;
 ///	specificed format settings for displaying to the user.</summary>
 function AdaptExtNumberFormat(const AFormat: string; const AFormatSettings: TFormatSettings): string;
 
+
+/// <summary>
+///   Computes and returns a display label based on the underlying view,
+///   if any, or the node itself (if no view is found).
+/// </summary>
+function GetDisplayLabelFromNode(const ANode: TKTreeViewNode; const AViews: TKViews): string;
+
+/// <summary>
+///   Invoke a method of a View that return a string using RTTI
+/// </summary>
+function CallViewControllerStringMethod(const AView: TKView;
+  const AMethodName: string; const ADefaultValue: string): string;
+
 implementation
 
 uses
-  Types, StrUtils, HTTPApp, RTTI,
+  Types, StrUtils, RTTI,
   EF.SysUtils, EF.StrUtils, EF.Classes, EF.Localization,
-  Kitto.Ext.Session, Kitto.AccessControl, Kitto.Ext.Base;
+  Kitto.AccessControl, Kitto.Utils;
 
 function CallViewControllerStringMethod(const AView: TKView;
   const AMethodName: string; const ADefaultValue: string): string;
@@ -117,6 +148,24 @@ begin
     Result := LMethod.Invoke(LControllerClass, []).AsString
   else
     Result := ADefaultValue;
+end;
+
+function GetDisplayLabelFromNode(const ANode: TKTreeViewNode; const AViews: TKViews): string;
+var
+  LView: TKView;
+begin
+  Assert(Assigned(ANode));
+
+  LView := ANode.FindView(AViews);
+  if Assigned(LView) then
+  begin
+    Result := _(LView.DisplayLabel);
+    if Result = '' then
+      Result := CallViewControllerStringMethod(LView, 'GetDefaultDisplayLabel', Result);
+  end
+  else
+    Result := _(ANode.AsString);
+  Result := Result;
 end;
 
 function GetImageName(const ANode: TKTreeViewNode; const AView: TKView): string;
@@ -139,23 +188,13 @@ begin
 
   if Assigned(AView) then
   begin
-    Assert(Session.ViewHost <> nil);
     if Session.StatusHost <> nil then
-      Result := FOwner.Ajax(FClickHandler, ['View', Integer(AView), 'AutoCollapseMenu', True,
-        'Dummy', Session.StatusHost.ShowBusy])
+      Result := FOwner.Ajax(FClickHandler, ['View', Integer(AView), 'Dummy', Session.StatusHost.ShowBusy])
     else
-      Result := FOwner.Ajax(FClickHandler, ['View', Integer(AView), 'AutoCollapseMenu', True]);
+      Result := FOwner.Ajax(FClickHandler, ['View', Integer(AView)]);
   end
   else
     Result := nil;
-end;
-
-function TKExtTreeViewRenderer.FindView(const ANode: TKTreeViewNode): TKView;
-begin
-  if ANode is TKTreeViewFolder then
-    Result := nil
-  else
-    Result := Session.Config.Views.ViewByNode(ANode);
 end;
 
 procedure TKExtTreeViewRenderer.AddMenuItem(const ANode: TKTreeViewNode;
@@ -166,38 +205,47 @@ var
   LSubMenu: TExtMenuMenu;
   LIsEnabled: Boolean;
   LView: TKView;
+  LDisplayLabel: string;
+  LNode: TKTreeViewNode;
 begin
   Assert(Assigned(ANode));
   Assert(Assigned(AMenu));
 
   for I := 0 to ANode.TreeViewNodeCount - 1 do
   begin
-    LView := FindView(ANode.TreeViewNodes[I]);
+    LNode := ANode.TreeViewNodes[I];
+    LView := LNode.FindView(Session.Config.Views);
 
     if not Assigned(LView) or LView.IsAccessGranted(ACM_VIEW) then
     begin
       LIsEnabled := not Assigned(LView) or LView.IsAccessGranted(ACM_RUN);
-      LMenuItem := TKExtMenuItem.AddTo(AMenu.Items);
+      LMenuItem := TKExtMenuItem.CreateAndAddTo(AMenu.Items);
       try
         Inc(FAddedItems);
+        LMenuItem.Disabled := not LIsEnabled;
         LMenuItem.View := LView;
         if Assigned(LMenuItem.View) then
         begin
-          LMenuItem.IconCls := Session.SetViewIconStyle(LMenuItem.View, GetImageName(ANode.TreeViewNodes[I], LMenuItem.View));
+          LMenuItem.IconCls := Session.SetViewIconStyle(LMenuItem.View,
+            GetImageName(LNode, LMenuItem.View));
           LMenuItem.On('click', GetClickFunction(LMenuItem.View));
-          LMenuItem.Disabled := not LIsEnabled;
+
+          LDisplayLabel := _(LNode.GetString('DisplayLabel', LMenuItem.View.DisplayLabel));
+          if LDisplayLabel = '' then
+            LDisplayLabel := CallViewControllerStringMethod(LView, 'GetDefaultDisplayLabel', '');
+          LMenuItem.Text := HTMLEncode(LDisplayLabel);
+          // No tooltip here - could be done through javascript if needed.
         end
         else
-          LMenuItem.Text := HTMLEncode(_(ANode.TreeViewNodes[I].AsString));
-        if ANode.TreeViewNodes[I].TreeViewNodeCount > 0 then
         begin
-          LSubMenu := TExtMenuMenu.Create;
-          try
+          if ANode.TreeViewNodes[I].TreeViewNodeCount > 0 then
+          begin
+            LDisplayLabel := _(LNode.GetString('DisplayLabel', LNode.AsString));
+            LMenuItem.Text := HTMLEncode(LDisplayLabel);
+            LMenuItem.IconCls := Session.SetIconStyle('Folder', LNode.GetString('ImageName'));
+            LSubMenu := TExtMenuMenu.Create(AMenu.Items);
             LMenuItem.Menu := LSubMenu;
             AddMenuItem(ANode.TreeViewNodes[I], LSubMenu);
-          except
-            FreeAndNil(LSubMenu);
-            raise;
           end;
         end;
       except
@@ -209,9 +257,9 @@ begin
 end;
 
 procedure TKExtTreeViewRenderer.AddButton(const ANode: TKTreeViewNode;
-  const AContainer: TExtContainer);
+  const ADisplayLabel: string; const AContainer: TExtContainer);
 var
-  LButton: TKExtButton;
+  LButton: TKExtViewButton;
   LMenu: TExtMenuMenu;
   LIsEnabled: Boolean;
   LView: TKView;
@@ -219,125 +267,180 @@ begin
   Assert(Assigned(ANode));
   Assert(Assigned(AContainer));
 
-  LView := FindView(ANode);
+  LView := ANode.FindView(Session.Config.Views);
 
-  if not Assigned(LView) or LView.IsAccessGranted(ACM_VIEW) then
-  begin
-    LIsEnabled := not Assigned(LView) or LView.IsAccessGranted(ACM_RUN);
-    LButton := TKExtButton.AddTo(AContainer.Items);
-    try
-      Inc(FAddedItems);
-      LButton.View := LView;
-      if Assigned(LButton.View) then
-      begin
-        LButton.IconCls := Session.SetViewIconStyle(LButton.View, GetImageName(ANode, LButton.View));
-        LButton.On('click', GetClickFunction(LButton.View));
-        LButton.Disabled := not LIsEnabled;
-      end
-      else
-        LButton.Text := HTMLEncode(_(ANode.AsString));
-      if ANode.ChildCount > 0 then
-      begin
-        LMenu := TExtMenuMenu.Create;
-        try
-          LButton.Menu := LMenu;
-          AddMenuItem(ANode, LMenu);
-        except
-          FreeAndNil(LMenu);
-          raise;
-        end;
-      end;
-    except
-      FreeAndNil(LButton);
-      raise;
+  LIsEnabled := not Assigned(LView) or LView.IsAccessGranted(ACM_RUN);
+  LButton := TKExtViewButton.CreateAndAddTo(AContainer.Items);
+  try
+    Inc(FAddedItems);
+    LButton.View := LView;
+    if Assigned(LButton.View) then
+    begin
+      LButton.IconCls := Session.SetViewIconStyle(LButton.View, GetImageName(ANode, LButton.View));
+      LButton.On('click', GetClickFunction(LButton.View));
+      LButton.Disabled := not LIsEnabled;
     end;
+    LButton.Text := HTMLEncode(ADisplayLabel);
+    if Session.TooltipsEnabled then
+      LButton.Tooltip := LButton.Text;
+
+    if ANode.ChildCount > 0 then
+    begin
+      LMenu := TExtMenuMenu.Create(AContainer);
+      try
+        LButton.Menu := LMenu;
+        AddMenuItem(ANode, LMenu);
+      except
+        FreeAndNil(LMenu);
+        raise;
+      end;
+    end;
+  except
+    FreeAndNil(LButton);
+    raise;
   end;
 end;
 
-procedure TKExtTreeViewRenderer.AddNode(const ANode: TKTreeViewNode; const AParent: TExtTreeTreeNode);
+procedure TKExtTreeViewRenderer.AddNode(const ANode: TKTreeViewNode;
+  const ADisplayLabel: string; const AParent: TExtTreeTreeNode);
 var
   LNode: TKExtTreeTreeNode;
   I: Integer;
   LIsEnabled: Boolean;
   LView: TKView;
+  LSubNode: TKTreeViewNode;
+  LDisplayLabel: string;
 begin
   Assert(Assigned(ANode));
   Assert(Assigned(AParent));
 
-  LView := FindView(ANode);
+  LView := ANode.FindView(Session.Config.Views);
 
-  if not Assigned(LView) or LView.IsAccessGranted(ACM_VIEW) then
-  begin
-    LIsEnabled := not Assigned(LView) or LView.IsAccessGranted(ACM_RUN);
-    LNode := TKExtTreeTreeNode.Create;
-    try
-      Inc(FAddedItems);
-      LNode.View := LView;
-      if Assigned(LNode.View) then
-      begin
-        LNode.IconCls := Session.SetViewIconStyle(LNode.View, GetImageName(ANode, LNode.View));
-        LNode.On('click', GetClickFunction(LNode.View));
-        LNode.Disabled := not LIsEnabled;
-      end
-      else
-        LNode.Text := HTMLEncode(_(ANode.AsString));
-
-      if ANode.TreeViewNodeCount > 0 then
-      begin
-        for I := 0 to ANode.TreeViewNodeCount - 1 do
-          AddNode(TKTreeViewNode(ANode.TreeViewNodes[I]), LNode);
-        LNode.Expandable := True;
-        if ANode is TKTreeViewFolder then
-          LNode.Expanded := not TKTreeViewFolder(ANode).IsInitiallyCollapsed
-        else
-          LNode.Expanded := True;
-        LNode.Leaf := False;
-      end;
-      AParent.AppendChild(LNode);
-    except
-      FreeAndNil(LNode);
-      raise;
+  LIsEnabled := not Assigned(LView) or LView.IsAccessGranted(ACM_RUN);
+  LNode := TKExtTreeTreeNode.Create(AParent.ChildNodes);
+  try
+    Inc(FAddedItems);
+    LNode.View := LView;
+    if Assigned(LNode.View) then
+    begin
+      LNode.IconCls := Session.SetViewIconStyle(LNode.View, GetImageName(ANode, LNode.View));
+      LNode.On('click', GetClickFunction(LNode.View));
+      LNode.Disabled := not LIsEnabled;
     end;
+    LNode.Text := HTMLEncode(ADisplayLabel);
+    if Session.TooltipsEnabled then
+      LNode.Qtip := LNode.Text;
+    if ANode.TreeViewNodeCount > 0 then
+    begin
+      for I := 0 to ANode.TreeViewNodeCount - 1 do
+      begin
+        LSubNode := ANode.TreeViewNodes[I];
+        LDisplayLabel := _(LSubNode.GetString('DisplayLabel', GetDisplayLabelFromNode(LSubNode, Session.Config.Views)));
+        AddNode(LSubNode, LDisplayLabel, LNode);
+      end;
+      LNode.Expandable := True;
+      if ANode is TKTreeViewFolder then
+        LNode.Expanded := not TKTreeViewFolder(ANode).IsInitiallyCollapsed
+      else
+        LNode.Expanded := True;
+      LNode.Leaf := False;
+    end;
+    AParent.AppendChild(LNode);
+  except
+    FreeAndNil(LNode);
+    raise;
   end;
+end;
+
+function TKExtTreeViewRenderer.CloneAndFilter(const ATreeView: TKTreeView): TKTreeView;
+var
+  I: Integer;
+begin
+  Assert(Assigned(ATreeView));
+
+  Result := TKTreeView.Clone(ATreeView);
+
+  for I := Result.TreeViewNodeCount - 1 downto 0 do
+    Filter(Result.TreeViewNodes[I]);
+end;
+
+procedure TKExtTreeViewRenderer.Filter(const ANode: TKTreeViewNode);
+var
+  LView: TKView;
+  I: Integer;
+begin
+  Assert(Assigned(ANode));
+
+  LView := ANode.FindView(Session.Config.Views);
+  if Assigned(LView) and not LView.IsAccessGranted(ACM_VIEW) then
+    ANode.Delete
+  else
+  begin
+    for I := ANode.TreeViewNodeCount - 1 downto 0 do
+      Filter(ANode.TreeViewNodes[I]);
+    // Remove empty folders.
+    if (ANode is TKTreeViewFolder) and (ANode.TreeViewNodeCount = 0) then
+      ANode.Delete;
+  end;
+end;
+
+function TKExtTreeViewRenderer.Render(const ATreeView: TKTreeView;
+  const AProc: TProc<TKTreeViewNode, string>; const AOwner: TExtObject;
+  const AClickHandler: TExtProcedure): Integer;
+var
+  I: Integer;
+  LTreeView: TKTreeView;
+  LNode: TKTreeViewNode;
+begin
+  Assert(Assigned(ATreeView));
+  Assert(Assigned(AProc));
+  Assert(Assigned(AOwner));
+  Assert(Assigned(AClickHandler));
+
+  FOwner := AOwner;
+  FClickHandler := AClickHandler;
+  FAddedItems := 0;
+
+  LTreeView := CloneAndFilter(ATreeView);
+  try
+    for I := 0 to LTreeView.TreeViewNodeCount - 1 do
+    begin
+      LNode := LTreeView.TreeViewNodes[I];
+      AProc(LNode, GetDisplayLabelFromNode(LNode, Session.Config.Views));
+    end;
+  finally
+    FreeAndNil(LTreeView);
+  end;
+  Result := FAddedItems;
 end;
 
 function TKExtTreeViewRenderer.RenderAsButtons(
   const ATreeView: TKTreeView; const AContainer: TExtContainer;
   const AOwner: TExtObject;
   const AClickHandler: TExtProcedure): Integer;
-var
-  I: Integer;
 begin
-  Assert(Assigned(ATreeView));
   Assert(Assigned(AContainer));
-  Assert(Assigned(AOwner));
-  Assert(Assigned(AClickHandler));
 
-  FOwner := AOwner;
-  FClickHandler := AClickHandler;
-  FAddedItems := 0;
-  for I := 0 to ATreeView.TreeViewNodeCount - 1 do
-    AddButton(ATreeView.TreeViewNodes[I], AContainer);
-  Result := FAddedItems;
+  Result := Render(ATreeView,
+    procedure (ANode: TKTreeViewNode; ADisplayLabel: string)
+    begin
+      AddButton(ANode, ADisplayLabel, AContainer);
+    end,
+    AOwner, AClickHandler);
 end;
 
 function TKExtTreeViewRenderer.RenderAsTree(
   const ATreeView: TKTreeView; const ARoot: TExtTreeTreeNode;
   const AOwner: TExtObject;  const AClickHandler: TExtProcedure): Integer;
-var
-  I: Integer;
 begin
-  Assert(Assigned(ATreeView));
   Assert(Assigned(ARoot));
-  Assert(Assigned(AOwner));
-  Assert(Assigned(AClickHandler));
 
-  FOwner := AOwner;
-  FClickHandler := AClickHandler;
-  FAddedItems := 0;
-  for I := 0 to ATreeView.TreeViewNodeCount - 1 do
-    AddNode(ATreeView.TreeViewNodes[I], ARoot);
-  Result := FAddedItems;
+  Result := Render(ATreeView,
+    procedure (ANode: TKTreeViewNode; ADisplayLabel: string)
+    begin
+      AddNode(ANode, ADisplayLabel, ARoot);
+    end,
+    AOwner, AClickHandler);
 end;
 
 function DelphiDateTimeFormatToJSDateTimeFormat(const ADateTimeFormat: string): string;
@@ -388,52 +491,28 @@ end;
 { TKExtTreeTreeNode }
 
 procedure TKExtTreeTreeNode.SetView(const AValue: TKView);
-var
-  LLabel: string;
 begin
   FView := AValue;
   if Assigned(FView) then
   begin
-    LLabel := _(FView.DisplayLabel);
-    if LLabel = '' then
-      LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
-    Text := HTMLEncode(_(LLabel));
     Expandable := False;
     Expanded := False;
     Leaf := True;
   end;
 end;
 
-{ TKExtButton }
+{ TKExtViewButton }
 
-procedure TKExtButton.SetView(const AValue: TKView);
-var
-  LLabel: string;
+procedure TKExtViewButton.SetView(const AValue: TKView);
 begin
   FView := AValue;
-  if Assigned(FView) then
-  begin
-    LLabel := _(FView.DisplayLabel);
-    if LLabel = '' then
-      LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
-    Text := HTMLEncode(_(LLabel));
-  end;
 end;
 
 { TKExtMenuItem }
 
 procedure TKExtMenuItem.SetView(const AValue: TKView);
-var
-  LLabel: string;
 begin
   FView := AValue;
-  if Assigned(FView) then
-  begin
-    LLabel := _(FView.DisplayLabel);
-    if LLabel = '' then
-      LLabel := CallViewControllerStringMethod(FView, 'GetDefaultDisplayLabel', LLabel);
-    Text := HTMLEncode(_(LLabel));
-  end;
 end;
 
 end.

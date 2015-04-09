@@ -28,8 +28,8 @@ uses
 
 type
   ///	<summary>
-  ///	  Base interface for controllers. Controllers manages views to build
-  ///   the user interface.
+  ///	 Base interface for controllers. Controllers manages views to build
+  ///  the user interface.
   ///	</summary>
   IKExtController = interface(IEFInterface)
     ['{FCDFC7CC-E202-4C20-961C-11255CABE497}']
@@ -50,21 +50,25 @@ type
     procedure SetContainer(const AValue: TExtContainer);
     property Container: TExtContainer read GetContainer write SetContainer;
 
-    function SupportsContainer: Boolean;
-
-    ///	<summary>Returns True if the controller should be freed right after
-    ///	calling Display because it does all its job inside that method, and
-    ///	False if the controller stays on screen and is interactive
-    ///	instead.</summary>
+    ///	<summary>
+    ///  Returns True if the controller should be freed right after
+    ///	 calling Display because it does all its job inside that method, and
+    ///	 False if the controller stays on screen and is interactive instead.
+    /// </summary>
     function IsSynchronous: Boolean;
   end;
 
+  IKExtControllerHost = interface(IEFInterface)
+    ['{67DA8FF9-23ED-41ED-A773-5D09AEEE2D80}']
+    procedure InitController(const AController: IKExtController);
+  end;
+
   ///	<summary>
-  ///	  Holds a list of registered controller classes.
+  ///	 Holds a list of registered controller classes.
   ///	</summary>
   ///	<remarks>
-  ///	  Classes passed to RegisterClass and UnregisterClass must implement
-  ///	  IKController, otherwise an exception is raised.
+  ///	 Classes passed to RegisterClass and UnregisterClass must implement
+  ///	 IKController, otherwise an exception is raised.
   ///	</remarks>
  { TODO :
 allow to overwrite registrations in order to override predefined controllers;
@@ -79,39 +83,58 @@ de-registration gracefully. }
       override;
   public
     class destructor Destroy;
+  public
     class property Instance: TKExtControllerRegistry read GetInstance;
     procedure RegisterClass(const AId: string; const AClass: TExtObjectClass);
   end;
 
   ///	<summary>
-  ///	  Queries the registry to create controllers by class Id. It is
-  ///	  friend to TKControllerRegistry.
+  ///	 Queries the registry to create controllers by class Id. It is
+  ///	 friend to TKControllerRegistry.
   ///	</summary>
   TKExtControllerFactory = class
   private
     class var FInstance: TKExtControllerFactory;
     class function GetInstance: TKExtControllerFactory; static;
+    function InvokeBooleanStaticMethod(const AClass: TClass; const AMethodName: string;
+      const ADefaultResult: Boolean): Boolean;
   public
     class destructor Destroy;
     class property Instance: TKExtControllerFactory read GetInstance;
 
-    ///	<summary>Creates a controller for the specified view.</summary>
-    ///	<param name="AView">A reference to the view to control. The view
-    ///	object's lifetime is managed externally.</param>
-    ///	<param name="AContainer">Visual container to which to add the newly
-    ///	created controller.</param>
-    ///	<param name="AConfig">Optional controller config node. If not
-    ///	specified, it is taken from the view's 'Controller' node.</param>
-    ///	<param name="AObserver">Optional observer that will receive events
-    ///	posted by the controller.</param>
-    ///	<param name="ACustomType">Custom controller type, used to override the
-    ///	one specified in the view.</param>
-    function CreateController(const AView: TKView; const AContainer: TExtContainer;
-      const AConfig: TEFNode = nil; const AObserver: IEFObserver = nil;
-      const ACustomType: string = ''): IKExtController;
+    ///	<summary>
+    ///  Creates a controller for the specified view.
+    /// </summary>
+    ///	<param name="AOwner">
+    ///  Owner for the created object (only used if AContainer is nil,
+    ///  otherwise the container is the owner).
+    /// </param>
+    ///	<param name="AView">
+    ///  A reference to the view to control. The view object's lifetime is
+    ///  managed externally.
+    /// </param>
+    ///	<param name="AContainer">
+    ///  Visual container to which to add the newly created controller.
+    /// </param>
+    ///	<param name="AConfig">
+    ///  Optional controller config node. If not specified, it is taken from
+    ///  the view's 'Controller' node.
+    /// </param>
+    ///	<param name="AObserver">
+    ///  Optional observer that will receive events posted by the controller.
+    /// </param>
+    ///	<param name="ACustomType">
+    ///  Custom controller type, used to override the one specified in the view.
+    /// </param>
+    function CreateController(const AOwner: TComponent; const AView: TKView;
+      const AContainer: TExtContainer; const AConfig: TEFNode = nil;
+      const AObserver: IEFObserver = nil; const ACustomType: string = ''): IKExtController;
   end;
 
 implementation
+
+uses
+  System.Rtti;
 
 { TKExtControllerRegistry }
 
@@ -155,19 +178,34 @@ begin
   Result := FInstance;
 end;
 
-type
-  TBreakExtObject = class(TExtObject);
+function TKExtControllerFactory.InvokeBooleanStaticMethod(const AClass: TClass;
+  const AMethodName: string; const ADefaultResult: Boolean): Boolean;
+var
+  LContext: TRttiContext;
+  LType: TRttiType;
+  LMethod: TRttiMethod;
+begin
+  LType := LContext.GetType(AClass);
+  LMethod := LType.GetMethod(AMethodName);
+  if Assigned(LMethod) then
+    Result := LMethod.Invoke(AClass, []).AsBoolean
+  else
+    Result := ADefaultResult;
+end;
 
-function TKExtControllerFactory.CreateController(const AView: TKView;
-  const AContainer: TExtContainer; const AConfig: TEFNode;
+function TKExtControllerFactory.CreateController(const AOwner: TComponent;
+  const AView: TKView; const AContainer: TExtContainer; const AConfig: TEFNode;
   const AObserver: IEFObserver; const ACustomType: string): IKExtController;
 var
   LClass: TExtObjectClass;
-  LIntf: IEFSubject;
+  LSubject: IEFSubject;
   LObject: TExtObject;
   LType: string;
+  LControllerHost: IKExtControllerHost;
+  LSupportsContainer: Boolean;
 begin
   Assert(AView <> nil);
+  Assert((AContainer <> nil) or (AOwner <> nil));
 
   LType := ACustomType;
   if LType = '' then
@@ -180,26 +218,32 @@ begin
     raise EKError.Create('Cannot create controller. Unspecified type.');
 
   LClass := TExtObjectClass(TKExtControllerRegistry.Instance.GetClass(LType));
+  LSupportsContainer := InvokeBooleanStaticMethod(LClass, 'SupportsContainer', True);
 
-  LObject := LClass.Create;
+  if Assigned(AContainer) and LSupportsContainer then
+    LObject := LClass.Create(AContainer)
+  else
+    LObject := LClass.Create(AOwner);
 
   if not Supports(LObject, IKExtController, Result) then
     raise EKError.Create('Object does not support IKController.');
 
-  { TODO : fix virtual construction in ExtPascal! }
-  TBreakExtObject(LObject).InitDefaults;
-  if Assigned(AContainer) and Result.SupportsContainer then
+  if Assigned(AContainer) and LSupportsContainer then
     LObject.AddTo(AContainer.Items);
 
   if AConfig <> nil then
     Result.Config.Assign(AConfig)
   else
     Result.Config.Assign(AView.FindNode('Controller'));
+  // Keep track of the SupportsContainer info fetched from the class for later use.
+  Result.Config.SetBoolean('Sys/SupportsContainer', LSupportsContainer);
   Result.View := AView;
-  if Result.SupportsContainer then
+  if Assigned(AContainer) and Supports(AContainer, IKExtControllerHost, LControllerHost) then
+    LControllerHost.InitController(Result);
+  if LSupportsContainer then
     Result.Container := AContainer;
-  if Assigned(AObserver) and Supports(Result.AsObject, IEFSubject, LIntf) then
-    LIntf.AttachObserver(AObserver);
+  if Assigned(AObserver) and Supports(Result.AsObject, IEFSubject, LSubject) then
+    LSubject.AttachObserver(AObserver);
 end;
 
 end.

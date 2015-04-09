@@ -1,5 +1,3 @@
-unit EF.JSON;
-
 {-------------------------------------------------------------------------------
    Copyright 2012 Ethea S.r.l.
 
@@ -16,12 +14,20 @@ unit EF.JSON;
    limitations under the License.
 -------------------------------------------------------------------------------}
 
+///	<summary>
+///	  Support for reading and writing data in JSON format.
+///	</summary>
+///	<seealso href="http://www.json.org/">
+///	  JSON web site
+///	</seealso>
+unit EF.JSON;
+
 {$I EF.Defines.inc}
 
 interface
 
 uses
-  DB,
+  SysUtils, StrUtils, DB,
   EF.Types, EF.DB;
 
 ///	<summary>
@@ -60,19 +66,29 @@ function TriplesToJSON(const ATriples: TEFTriples): string;
 ///	<example>
 ///	  <para><c>'["IT", "ITALY"], ["UK", "UNITED KINGDOM"]'</c></para>
 ///	</example>
-function DataSetToJSON(const ADBConnection: TEFDBConnection; const ACommandText: string): string; overload;
+function DataSetToJSON(const ADBConnection: TEFDBConnection; const ACommandText: string;
+  const AKeyFieldsToAggregate: integer = 0): string; overload;
 
 ///	<summary>Builds a JSON representation of a dataset's fields values. Each
 /// record is enclosed in []s and each value is double-quoted.</summary>
 ///	<example>
 ///	  <para><c>'["IT", "ITALY"], ["UK", "UNITED KINGDOM"]'</c></para>
 ///	</example>
-function DataSetToJSON(const ADataSet: TDataSet): string; overload;
+function DataSetToJSON(const ADataSet: TDataSet;
+  const AKeyFieldsToAggregate: integer = 0): string; overload;
+
+function QuoteJSONStr(const AString: string): string; inline;
+
+function JSONNullToEmptyStr(const AJSONValue: string): string; inline;
+
+/// <summary>
+///   Escapes control characters in the JSON string.
+/// </summary>
+function JSONEscape(const AString: string): string;
 
 implementation
 
 uses
-  SysUtils,
   EF.StrUtils;
 
 function PairsToJSON(const APairs: TEFPairs; const AReversed: Boolean): string;
@@ -83,9 +99,9 @@ begin
   for I := Low(APairs) to High(APairs) do
   begin
     if AReversed then
-      Result := Result + '["' + APairs[I].Value + '", "' + APairs[I].Key + '"]'
+      Result := Result + '[' + QuoteJSONStr(APairs[I].Value) + ',' + QuoteJSONStr(APairs[I].Key) + ']'
     else
-      Result := Result + '["' + APairs[I].Key + '", "' + APairs[I].Value + '"]';
+      Result := Result + '[' + QuoteJSONStr(APairs[I].Key) + ',' + QuoteJSONStr(APairs[I].Value) + ']';
     if I < High(APairs) then
       Result := Result + ',';
   end;
@@ -98,13 +114,17 @@ begin
   Result := '';
   for I := Low(ATriples) to High(ATriples) do
   begin
-    Result := Result + '["' + ATriples[I].Value1 + '", "' + ATriples[I].Value2 + '", "' + ATriples[I].Value3 +'"]';
+    Result := Result + '['
+      + QuoteJSONStr(ATriples[I].Value1) + ','
+      + QuoteJSONStr(ATriples[I].Value2) + ','
+      + QuoteJSONStr(ATriples[I].Value3) +']';
     if I < High(ATriples) then
       Result := Result + ',';
   end;
 end;
 
-function DataSetToJSON(const ADBConnection: TEFDBConnection; const ACommandText: string): string;
+function DataSetToJSON(const ADBConnection: TEFDBConnection; const ACommandText: string;
+  const AKeyFieldsToAggregate: integer = 0): string;
 var
   LDBQuery: TEFDBQuery;
 begin
@@ -116,7 +136,7 @@ begin
     LDBQuery.CommandText := ACommandText;
     LDBQuery.Open;
     try
-      Result := DataSetToJSON(LDBQuery.DataSet);
+      Result := DataSetToJSON(LDBQuery.DataSet, AKeyFieldsToAggregate);
     finally
       LDBQuery.Close;
     end;
@@ -125,10 +145,11 @@ begin
   end;
 end;
 
-function DataSetToJSON(const ADataSet: TDataSet): string;
+function DataSetToJSON(const ADataSet: TDataSet; const AKeyFieldsToAggregate: integer = 0): string;
 var
   LBookmark: TBookmark;
   I: Integer;
+  LKeyValue: string;
 begin
   Assert(Assigned(ADataSet));
   Assert(ADataSet.Active);
@@ -142,9 +163,25 @@ begin
       while not ADataSet.Eof do
       begin
         Result := Result + '[';
-        for I := 0 to ADataSet.FieldCount - 1 do
+        if AKeyFieldsToAggregate > 1 then
         begin
-          Result := Result + '"' + ADataSet.Fields[I].AsString + '"';
+          LKeyValue := '';
+          for I := 0 to AKeyFieldsToAggregate -1 do
+          begin
+            LKeyValue := LKeyValue + ADataSet.Fields[I].AsString;
+            if I < AKeyFieldsToAggregate -1 then
+              LKeyValue := LKeyValue + ',';
+          end;
+          Result := Result + QuoteJSONStr(LKeyValue);
+          if AKeyFieldsToAggregate < ADataSet.FieldCount then
+            Result := Result + ',';
+          I := AKeyFieldsToAggregate;
+        end
+        else
+          I := 0;
+        for I := I to ADataSet.FieldCount - 1 do
+        begin
+          Result := Result + QuoteJSONStr(ADataSet.Fields[I].AsString);
           if I < ADataSet.FieldCount - 1 then
             Result := Result + ',';
         end;
@@ -158,6 +195,26 @@ begin
   finally
     ADataSet.EnableControls;
   end;
+end;
+
+function QuoteJSONStr(const AString: string): string;
+begin
+  Result := '"' + ReplaceStr(AString, '"', '\"') + '"';
+end;
+
+function JSONNullToEmptyStr(const AJSONValue: string): string;
+begin
+  if SameText(AJSONValue, 'null') then
+    Result := ''
+  else
+    Result := AJSONValue;
+end;
+
+function JSONEscape(const AString: string): string;
+begin
+  Result := ReplaceStr(AString, sLineBreak, '\n');
+  Result := ReplaceStr(Result, #10, '\n');
+  Result := ReplaceStr(Result, #13, '\n');
 end;
 
 end.

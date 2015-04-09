@@ -35,30 +35,28 @@ uses
   SysUtils,
   Ext,
   EF.StrUtils, EF.Macros, EF.Localization,
-  Kitto.Ext.Session;
+  Kitto.Ext.Session, Kitto.Metadata.Views;
 
 { TKExtHtmlPanelController }
 
 procedure TKExtHtmlPanelController.DoDisplay;
 var
   LFileName: string;
-  LFullFileName: string;
   LHtml: string;
+  LView: TKView;
 begin
   inherited;
-  if Title = '' then
-    Title := _(View.DisplayLabel);
-  AutoScroll := True;
+  if (Title = '') then
+  begin
+    LView := View;
+    if Assigned(LView) then
+      Title := _(LView.DisplayLabel);
+  end;
+  AutoScroll := False;
 
   LFileName := Config.GetExpandedString('FileName');
   if LFileName <> '' then
-  begin
-    LFullFileName := Session.Config.FindResourcePathName(LFileName);
-    if LFullFileName <> '' then
-      Html := TEFMacroExpansionEngine.Instance.Expand(TextFileToString(LFullFileName))
-    else
-      Html := Format('File %s not found.', [LFileName]);
-  end
+    LoadHtml(LFileName)
   else
   begin
     LHtml := Config.GetExpandedString('Html');

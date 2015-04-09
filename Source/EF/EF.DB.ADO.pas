@@ -39,6 +39,12 @@ type
     ///	  current object's parameter.
     ///	</summary>
     procedure AssignValuesTo(const ADestination: TParameters);
+    ///	<summary>
+    ///	  Retrieve the Value property of every parameter from ASource whose name
+    ///	  matches the name of a parameter in the current object to that of the
+    ///	  current object's parameter.
+    ///	</summary>
+    procedure AssignValuesFrom(const ASource: TParameters);
   end;
 
   ///	<summary>
@@ -84,6 +90,7 @@ type
     function GetLastAutoincValue(const ATableName: string = ''): Int64; override;
     function CreateDBCommand: TEFDBCommand; override;
     function CreateDBQuery: TEFDBQuery; override;
+    function GetConnection: TObject; override;
   end;
 
   TEFDBADOCommand = class(TEFDBCommand)
@@ -93,6 +100,8 @@ type
     FCommandText: string;
     // Copies the values in FParams to FCommand.Parameters.
     procedure UpdateInternalCommandParams;
+    // Copies the values in FCommand.Parameters. to FParams
+    procedure UpdateParamsFromParameters;
     // Updates FCommand's command, if necessary, and prepares the command.
     procedure UpdateInternalCommandCommandText;
   protected
@@ -153,7 +162,7 @@ implementation
 
 uses
   SysUtils, StrUtils, Variants, ADOInt,
-  EF.VariantUtils, EF.Types, EF.Tree, EF.SQL;
+  EF.Localization, EF.VariantUtils, EF.Types, EF.Tree, EF.SQL;
 
 function ADODataTypeToEFDataType(const AADODataType: Integer): string;
 begin
@@ -188,6 +197,19 @@ begin
     LDestinationParameter := ADestination.FindParam(Items[LParamIndex].Name);
     if Assigned(LDestinationParameter) then
       LDestinationParameter.Value := Items[LParamIndex].Value;
+  end;
+end;
+
+procedure TEFDBADOParams.AssignValuesFrom(const ASource: TParameters);
+var
+  LParamIndex: Integer;
+  LDestinationParam: TParam;
+begin
+  for LParamIndex := 0 to ASource.Count - 1 do
+  begin
+    LDestinationParam := FindParam(ASource.Items[LParamIndex].Name);
+    if Assigned(LDestinationParam) then
+      LDestinationParam.Value := ASource.Items[LParamIndex].Value;
   end;
 end;
 
@@ -294,6 +316,10 @@ end;
 
 function TEFDBADOConnection.ExecuteImmediate(const AStatement: string): Integer;
 begin
+  Assert(Assigned(FConnection));
+
+  if AStatement = '' then
+    raise EEFError.Create(_('Unspecified Statement text.'));
   Open;
   FConnection.Execute(AStatement, Result);
 end;
@@ -308,6 +334,11 @@ end;
 function TEFDBADOConnection.GetQueryClass: TEFDBADOQueryClass;
 begin
   Result := TEFDBADOQuery;
+end;
+
+function TEFDBADOConnection.GetConnection: TObject;
+begin
+  Result := FConnection;
 end;
 
 function TEFDBADOConnection.GetLastAutoincValue(
@@ -348,6 +379,7 @@ begin
   UpdateInternalCommandParams;
   inherited;
   FCommand.Execute(Result, EmptyParam);
+  UpdateParamsFromParameters;
 end;
 
 function TEFDBADOCommand.GetCommandText: string;
@@ -408,6 +440,11 @@ begin
   FParams.AssignValuesTo(FCommand.Parameters);
 end;
 
+procedure TEFDBADOCommand.UpdateParamsFromParameters;
+begin
+  FParams.AssignValuesFrom(FCommand.Parameters);
+end;
+
 { TEFDBADOQuery }
 
 procedure TEFDBADOQuery.AfterConstruction;
@@ -445,7 +482,17 @@ begin
   Connection.DBEngineType.BeforeExecute(FCommandText, FParams);
   UpdateInternalQueryParams;
   InternalBeforeExecute;
-  DataSet.Open;
+  try
+    DataSet.Open;
+  except
+    on E: Exception do
+    begin
+      raise EEFError.Create(_(Format('Error "%s" opening query: %s.',
+        [E.Message, FCommandText])));
+    end
+    else
+      raise;
+  end;
 end;
 
 procedure TEFDBADOQuery.Close;
@@ -525,13 +572,6 @@ end;
 procedure TEFDBADOQuery.UpdateInternalQueryParams;
 begin
   FParams.AssignValuesTo(FQuery.Parameters);
-end;
-
-{ TEFDBADOFactory }
-
-function TEFDBADOAdapter.InternalCreateDBConnection: TEFDBConnection;
-begin
-  Result := TEFDBADOConnection.Create;
 end;
 
 { TEFDBADOInfo }
@@ -672,6 +712,13 @@ begin
   finally
     LForeignKeyDataSet.Free;
   end;
+end;
+
+{ TEFDBADOAdapter }
+
+function TEFDBADOAdapter.InternalCreateDBConnection: TEFDBConnection;
+begin
+  Result := TEFDBADOConnection.Create;
 end;
 
 class function TEFDBADOAdapter.InternalGetClassId: string;

@@ -7,16 +7,11 @@ MainTable:
   Model: ACTIVITY
 
   Controller:
-    PopupWindow:
-      Width: 580
-      Height: 340
-
     Form:
       Layout: ActivityInput_Form
 
     Grouping:
       FieldName: TYPE
-      # SortFieldName defaults to FieldName.
       EnableMenu: False
       StartCollapsed: True
       ShowName: False

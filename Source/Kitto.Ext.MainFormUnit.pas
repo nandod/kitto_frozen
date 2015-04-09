@@ -24,7 +24,8 @@ uses
   {$IF RTLVersion >= 23.0}Themes, Styles,{$IFEND}
   Windows, Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, ComCtrls, ToolWin, Kitto.Ext.Application,
-  ActnList, Kitto.Config, StdCtrls, Buttons, ExtCtrls, ImgList, EF.Logger;
+  ActnList, Kitto.Config, StdCtrls, Buttons, ExtCtrls, ImgList, EF.Logger,
+  Actions;
 
 type
   TKExtLogEvent = procedure (const AString: string) of object;
@@ -57,6 +58,7 @@ type
     OpenConfigDialog: TOpenDialog;
     SpeedButton1: TSpeedButton;
     HomeURLLabel: TLabel;
+    AppIcon: TImage;
     procedure StartActionUpdate(Sender: TObject);
     procedure StopActionUpdate(Sender: TObject);
     procedure StartActionExecute(Sender: TObject);
@@ -75,6 +77,9 @@ type
     FAppThread: TKExtAppThread;
     FRestart: Boolean;
     FLogEndPoint: TKExtMainFormLogEndpoint;
+    {$IFDEF D20+}
+    FTaskbar: TComponent;
+    {$ENDIF}
     function IsStarted: Boolean;
     function GetAppThread: TKExtAppThread;
     procedure AppThreadTerminated(Sender: TObject);
@@ -84,6 +89,9 @@ type
     procedure SetConfig(const AFileName: string);
     procedure SelectConfigFile;
     procedure DisplayHomeURL(const AHomeURL: string);
+    {$IFDEF D20+}
+    procedure SetupTaskbar;
+    {$ENDIF}
     property AppThread: TKExtAppThread read GetAppThread;
     function HasConfigFileName: Boolean;
     procedure DoLog(const AString: string);
@@ -97,7 +105,7 @@ implementation
 {$R *.dfm}
 
 uses
-  Math,
+  Math, {$IFDEF D20+}System.Win.TaskbarCore, Vcl.Taskbar,{$ENDIF}
   EF.SysUtils, EF.Shell, EF.Localization,
   FCGIApp;
 
@@ -137,6 +145,7 @@ begin
   begin
     DoLog(_('Stopping listener...'));
     FAppThread.Terminate;
+    HomeURLLabel.Visible := False;
     while IsStarted do
       Forms.Application.ProcessMessages;
     if FRestart then
@@ -171,7 +180,7 @@ end;
 
 procedure TKExtMainForm.UpdateSessionCountlabel;
 begin
-  SessionCountLabel.Caption := Format(_('Active Sessions: %d'), [GetSessionCount]);
+  SessionCountLabel.Caption := Format('Active Sessions: %d', [GetSessionCount]);
 end;
 
 function TKExtMainForm.GetSessionCount: Integer;
@@ -234,6 +243,7 @@ procedure TKExtMainForm.SetConfig(const AFileName: string);
 var
   LConfig: TKConfig;
   LWasStarted: Boolean;
+  LAppIconFileName: string;
 begin
   LWasStarted := IsStarted;
   if LWasStarted then
@@ -243,13 +253,49 @@ begin
   LConfig := TKConfig.Create;
   try
     AppTitleLabel.Caption := Format(_('Application: %s'), [_(LConfig.AppTitle)]);
+    LAppIconFileName := LConfig.FindResourcePathName(LConfig.AppIcon+'.png');
+    if FileExists(LAppIconFileName) then
+      AppIcon.Picture.LoadFromFile(LAppIconFileName)
+    else
+      AppIcon.Picture.Bitmap := nil;
   finally
     FreeAndNil(LConfig);
   end;
   StartAction.Update;
   if LWasStarted then
     StartAction.Execute;
+  {$IFDEF D20+}
+  SetupTaskbar;
+  {$ENDIF}
 end;
+
+{$IFDEF D20+}
+procedure TKExtMainForm.SetupTaskbar;
+var
+  LTaskbar: TTaskbar;
+
+  procedure AddButton(const AAction: TAction);
+  var
+    LButton: TThumbBarButton;
+  begin
+    LButton := LTaskbar.TaskBarButtons.Add;
+    LButton.Action := AAction;
+  end;
+
+begin
+  FreeAndNil(FTaskbar);
+  FTaskbar := TTaskbar.Create(Self);
+  LTaskbar := TTaskbar(FTaskbar);
+  // Needed to avoid AVs when LTaskbar.TaskBarButtons.Add is called.
+  // the component does not really support being configured at run time.
+  LTaskbar.TaskBarButtons.OnChange := nil;
+  AddButton(StartAction);
+  AddButton(StopAction);
+  AddButton(RestartAction);
+  // Apply the changes to the windows taskbar.
+  LTaskbar.Initialize;
+end;
+{$ENDIF}
 
 procedure TKExtMainForm.DisplayHomeURL(const AHomeURL: string);
 begin
@@ -289,7 +335,7 @@ begin
   DoLog(_('Listener started'));
   LConfig := TKConfig.Create;
   try
-    DisplayHomeURL(Format('http://localhost/kitto/%d', [LConfig.Config.GetInteger('FastCGI/TCPPort', 2014)]));
+    DisplayHomeURL(LConfig.GetHomeURL);
   finally
     FreeAndNil(LConfig);
   end;

@@ -48,9 +48,9 @@ begin
   Height := View.GetInteger('Controller/Height', 600);
   ResizeHandles := View.GetString('Controller/ResizeHandles');
   Resizable := ResizeHandles <> '';
-  Maximizable := Resizable;
+  Maximizable := View.GetBoolean('Controller/Maximizable', Resizable);
 
-  Draggable := View.GetBoolean('Controller/Movable');
+  Draggable := View.GetBoolean('Controller/Movable', True);
 
   CreateSubController;
   inherited;
@@ -71,7 +71,7 @@ begin
   Assert(Assigned(View));
 
   LSubView := Session.Config.Views.ViewByNode(View.GetNode('Controller/SubView'));
-  LController := TKExtControllerFactory.Instance.CreateController(LSubView, Self);
+  LController := TKExtControllerFactory.Instance.CreateController(Self, LSubView, Self);
   LController.Display;
 end;
 

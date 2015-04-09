@@ -1,17 +1,20 @@
 ﻿Type: Tree
-Folder: Options
-  #View: Girls
-  #View: Dolls
+Folder: _(Options)
+  Folder: _(Girls)
+    ImageName: Girl
+    View: GirlForm
+    View: Girls
+      DisplayLabel: _(Girl list)
+  Folder: _(Dolls)
+    ImageName: Doll
+    View: DollForm
+    View: Dolls
+      DisplayLabel: _(Doll list)
+    .View: DollsCard
   View: Parties
-Folder: Lookup tables
-  View: Build AutoList
-    Model: Hair
-    MainTable:
-      Controller:
-        PopupWindow:
-          Width: 320
-          Height: 160
-Folder: User
+Folder: _(Lookup tables)
+  View: Hairs
+Folder: _(User)
   IsInitiallyCollapsed: True
   View:
     Controller: ChangePassword

@@ -1,4 +1,5 @@
-ModelName: Hair
+﻿ModelName: Hair
+ImageName: Hair
 DisplayLabel: Hair Type
 PluralDisplayLabel: Hair Types
 Fields:

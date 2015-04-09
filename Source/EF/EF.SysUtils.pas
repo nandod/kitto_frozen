@@ -134,7 +134,8 @@ function ExecuteApplication(const AFileName: string; const AOutput: TStrings): I
 ///	  Executes an application synchronously (AWait = True) or Asynchronously
 ///	  (AWait = False), with a specified working directory.
 ///	</summary>
-function ExecuteApplication(const AFileName, AWorkingDirectory: string; const AWait: Boolean = False): Integer; overload;
+function ExecuteApplication(const AFileName, AWorkingDirectory: string;
+  const AWait: Boolean = False; const AVisibility: Integer = SW_NORMAL): Integer; overload;
 
 ///	<summary>
 ///	  Executes an application asynchronously, but the process handle is not
@@ -730,6 +731,7 @@ end;
   later loaded into AOutput and deleted. Use this mode for console applications
   and batch files only.
 }
+
 function InternalExecuteApplication(const AFileName: string;
   const AVisibility: Integer; const AWait: Boolean;
   const ARetainProcessHandle: Boolean; out AProcessHandle: Cardinal;
@@ -781,7 +783,7 @@ begin
 
     FillChar(LStartupInfo, SizeOf(LStartupInfo), #0);
     LStartupInfo.cb := SizeOf(LStartupInfo);
-    LStartupInfo.dwFlags := STARTF_USESHOWWINDOW or STARTF_USESTDHANDLES;
+    LStartupInfo.dwFlags := STARTF_USESHOWWINDOW;// or STARTF_USESTDHANDLES;
     LStartupInfo.wShowWindow := AVisibility;
     if LUseOutputTempFile then
     begin
@@ -840,11 +842,11 @@ begin
 end;
 
 function ExecuteApplication(const AFileName, AWorkingDirectory: string;
-  const AWait: Boolean = False): Integer; overload;
+  const AWait: Boolean = False; const AVisibility: Integer = SW_NORMAL): Integer; overload;
 var
   LDummy: Cardinal;
 begin
-  Result := InternalExecuteApplication(AFileName, SW_NORMAL, AWait, False, LDummy, AWorkingDirectory);
+  Result := InternalExecuteApplication(AFileName, AVisibility, AWait, False, LDummy, AWorkingDirectory);
 end;
 
 function ExecuteApplication(const AFileName: string; out AProcessHandle: Cardinal): Integer;
@@ -1253,7 +1255,7 @@ end;
 function GetFormatSettings: TFormatSettings;
 begin
   {$IFDEF D15+}
-  Result := TFormatSettings.Create;
+  Result := TFormatSettings.Create('');
   {$ELSE}
   GetLocaleFormatSettings(GetThreadLocale, Result);
   {$ENDIF}
@@ -1518,8 +1520,11 @@ end;
 procedure TEFFileDeleter.DoDeleteDirectory(const ADirectoryName: string);
 begin
   if not RemoveDir(ADirectoryName) then
-    raise Exception.CreateFmt(_('Error while removing folder "%s". Perhaps the folder is not empty or is in use.'),
-      [ADirectoryName]);
+  begin
+    raise Exception.CreateFmt(_('Error while removing folder "%s". Perhaps the folder is not empty or is in use.')
+      + sLineBreak + sLineBreak + '%s',
+      [ADirectoryName, SysErrorMessage(GetLastError)]);
+  end;
 end;
 
 procedure TEFFileDeleter.DoProcessFile(const ASourceFileName, ADestinationFileName: string);

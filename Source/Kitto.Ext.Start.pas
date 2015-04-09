@@ -24,6 +24,7 @@ type
   class var
     FServiceName: string;
     FServiceDisplayName: string;
+    class procedure Configure;
   public
     class property ServiceName: string read FServiceName write FServiceName;
     class property ServiceDisplayName: string read FServiceDisplayName write FServiceDisplayName;
@@ -33,29 +34,28 @@ type
 implementation
 
 uses
-  SysUtils, Forms, Classes, SvcMgr, ShlObj,
+  SysUtils, Forms, Classes, SvcMgr, ShlObj, Themes, Styles,
   EF.SysUtils, EF.Logger, EF.Localization,
   Kitto.Config,
   Kitto.Ext.MainFormUnit, Kitto.Ext.Service;
 
 { TKExtStart }
 
-class procedure TKExtStart.Start;
-
-  procedure Configure;
-  var
-    LConfig: TKConfig;
-  begin
-    LConfig := TKConfig.Create;
-    try
-      TEFLogger.Instance.Configure(LConfig.Config.FindNode('Log'), LConfig.MacroExpansionEngine);
-      FServiceName := TKConfig.AppName;
-      FServiceDisplayName := _(LConfig.AppTitle);
-    finally
-      FreeAndNil(LConfig);
-    end;
+class procedure TKExtStart.Configure;
+var
+  LConfig: TKConfig;
+begin
+  LConfig := TKConfig.Create;
+  try
+    TEFLogger.Instance.Configure(LConfig.Config.FindNode('Log'), LConfig.MacroExpansionEngine);
+    FServiceName := TKConfig.AppName;
+    FServiceDisplayName := _(LConfig.AppTitle);
+  finally
+    FreeAndNil(LConfig);
   end;
+end;
 
+class procedure TKExtStart.Start;
 begin
   Configure;
 
@@ -73,6 +73,7 @@ begin
   begin
     TEFLogger.Instance.Log('Starting as application.');
     Forms.Application.Initialize;
+    TStyleManager.TrySetStyle('Aqua Light Slate');
     Forms.Application.CreateForm(TKExtMainForm, KExtMainForm);
     Forms.Application.Run;
   end;

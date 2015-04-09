@@ -2,13 +2,13 @@
 # Valid top-level controllers are Window and Viewport
 Controller: Window
   Width: 1000
-  Height: 500
+  Height: 600
 
   SubView:
     Controller: BorderPanel
 
       WestView:
-        DisplayLabel: Navigation
+        DisplayLabel: _(Main menu)
         Controller: BorderPanel
           Width: 155
           Collapsible: True
@@ -18,7 +18,7 @@ Controller: Window
           NorthView:
             Controller: HtmlPanel
               Split: False
-              Html: <p><img src="%IMAGE(kitto_logo_150)%" width="150" height="47"></img></p>
+              Html: <p><img src="%IMAGE(hello_kitto_150)%" width="150" height="47"></img></p>
           CenterView:
             Controller: TreePanel
               TreeView: MainMenu
@@ -30,11 +30,11 @@ Controller: Window
             View: Girls
             View: Dolls
 
-      .NorthView:
+      NorthView:
         Controller: ToolBar
           TreeView: MainMenu
 
       SouthView:
         Controller: StatusBar
-          Text: <p>User: %Auth:UserName%</p>
+          Text: _(User: %Auth:UserName%)
         ImageName: user

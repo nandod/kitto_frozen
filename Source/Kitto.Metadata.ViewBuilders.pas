@@ -26,14 +26,15 @@ uses
 
 type
   TKAutoViewBuilderBase = class(TKViewBuilder)
-  private
+  strict private
     function BuildSearchString(const AFields: TKViewFields): string;
     procedure AddFields(const AViewTable: TKViewTable; const AModel: TKModel);
     procedure AddDetailTables(const AViewTable: TKViewTable;
       const AModel: TKModel);
-  protected
+  strict protected
     function GetControllerType: string; virtual; abstract;
     function GetModel: TKModel;
+    procedure CustomizeView(const AView: TKView); virtual;
   public
     function BuildView(const AViews: TKViews;
       const APersistentName: string = '';
@@ -41,13 +42,14 @@ type
   end;
 
   TKAutoListViewBuilder = class(TKAutoViewBuilderBase)
-  protected
+  strict protected
     function GetControllerType: string; override;
   end;
 
   TKAutoFormViewBuilder = class(TKAutoViewBuilderBase)
-  protected
+  strict protected
     function GetControllerType: string; override;
+    procedure CustomizeView(const AView: TKView); override;
   end;
 
 implementation
@@ -86,6 +88,7 @@ begin
   begin
     LDetailTable := TKViewTable.Create;
     try
+      LDetailTable.Name := 'Table';
       LDetailTable.SetString('Model', AModel.DetailReferences[I].DetailModel.ModelName);
       AViewTable.AddDetailTable(LDetailTable);
       AddFields(LDetailTable, LDetailTable.Model);
@@ -100,14 +103,15 @@ function TKAutoViewBuilderBase.BuildView(const AViews: TKViews;
   const APersistentName: string; const ANode: TEFNode): TKView;
 var
   LMainTable: TKViewTable;
-  //LMainTableController: TEFNode;
   LModel: TKModel;
   LFilters: TEFNode;
   LFilterItems: TEFNode;
   LSearchItem: TEFNode;
   LSourceControllerNode: TEFNode;
   LSourceMainTableControllerNode: TEFNode;
+  LSourceDisplayLabelNode: TEFNode;
   LControllerNode: TEFNode;
+  LResourceName: TEFNode;
 begin
   inherited;
   LModel := GetModel;
@@ -121,10 +125,18 @@ begin
     end
     else if ANode <> nil then
       AViews.AddNonpersistentObject(Result, ANode);
+
+    LResourceName := FindNode('ResourceName');
+    if Assigned(LResourceName) then
+      Result.SetString('ResourceName', LResourceName.AsString);
+
+    LSourceDisplayLabelNode := FindNode('DisplayLabel');
+    if Assigned(LSourceDisplayLabelNode) then
+      Result.SetString('DisplayLabel', LSourceDisplayLabelNode.AsString);
+
     LSourceControllerNode := FindNode('Controller');
     if Assigned(LSourceControllerNode) then
       Result.AddChild(TEFNode.Clone(LSourceControllerNode));
-    //Result.SetString('DisplayLabel', LModel.PluralDisplayLabel);
     LControllerNode := Result.SetString('Controller', GetControllerType);
 
     LMainTable := Result.AddChild(TKViewTable.Create('MainTable')) as TKViewTable;
@@ -133,7 +145,7 @@ begin
     AddDetailTables(LMainTable, LModel);
 
     LFilters := LControllerNode.AddChild('Filters');
-    LFilters.SetString('DisplayLabel', _(Format('Search %s', [LModel.PluralDisplayLabel])));
+    LFilters.SetString('DisplayLabel', _(Format(_('Search %s'), [LModel.PluralDisplayLabel])));
     LFilterItems := LFilters.AddChild('Items');
     LSearchItem := LFilterItems.AddChild('FreeSearch', _('Free Search'));
     LSearchItem.SetString('ExpressionTemplate', BuildSearchString(
@@ -144,6 +156,7 @@ begin
       {LMainTableController := }LMainTable.AddChild(TEFNode.Clone(LSourceMainTableControllerNode))
     else
       {LMainTableController := }LMainTable.AddChild('Controller');
+    CustomizeView(Result);
   except
     if APersistentName <> '' then
       AViews.RemoveObject(Result)
@@ -152,6 +165,10 @@ begin
     FreeAndNil(Result);
     raise;
   end;
+end;
+
+procedure TKAutoViewBuilderBase.CustomizeView(const AView: TKView);
+begin
 end;
 
 function TKAutoViewBuilderBase.BuildSearchString(const AFields: TKViewFields): string;
@@ -189,6 +206,12 @@ begin
 end;
 
 { TKAutoFormViewBuilder }
+
+procedure TKAutoFormViewBuilder.CustomizeView(const AView: TKView);
+begin
+  inherited;
+  AView.SetString('Controller/Operation', 'Add');
+end;
 
 function TKAutoFormViewBuilder.GetControllerType: string;
 begin

@@ -23,8 +23,14 @@ interface
 uses
   EF.Types;
 
+const
+  VIEW_OPERATION = 'View';
+  ADD_OPERATION = 'Add';
+  EDIT_OPERATION = 'Edit';
+  DUPLICATE_OPERATION = 'Dup';
+
 type
-  TKEditMode = (emNewRecord, emEditCurrentRecord);
+  TKEditMode = (emViewCurrentRecord, emNewRecord, emEditCurrentRecord, emDupCurrentRecord);
 
   EKError = class(EEFError);
 
