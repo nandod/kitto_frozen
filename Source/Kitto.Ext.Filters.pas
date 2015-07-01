@@ -150,7 +150,6 @@ type
     FConfig: TEFNode;
     FViewTable: TKViewTable;
     FServerStore: TKStore;
-    const TRIGGER_WIDTH = 4;
   public
     procedure SetConfig(const AConfig: TEFNode); virtual;
     function AsExtObject: TExtObject;
@@ -158,7 +157,7 @@ type
     function GetId: string;
     procedure Invalidate;
   published
-    procedure GetRecordPage;
+    procedure GetRecordPage; virtual; abstract;
   end;
 
   /// <summary>
@@ -197,6 +196,8 @@ type
     function GetExpression: string;
     procedure SetConfig(const AConfig: TEFNode); override;
     function ExpandValues(const AString: string): string;
+  published
+    procedure GetRecordPage; override;
   end;
 
   /// <summary>
@@ -225,6 +226,7 @@ type
     function ExpandValues(const AString: string): string;
   published
     procedure ValueChanged;
+    procedure GetRecordPage; override;
   end;
 
   /// <summary>
@@ -233,7 +235,8 @@ type
   ///  </para>
   ///  <para>
   ///   AutoSearchAfterChars determines the number of characters that can
-  ///   be entered before the search fires. Default is 4 characters.
+  ///   be entered before the search automatically fires. Default is 0
+  ///   characters (no auto search).
   ///  </para>
   /// </summary>
   TKFreeSearchFilter = class(TKExtFormTextField, IKExtFilter)
@@ -529,37 +532,6 @@ begin
   Result := FConfig.GetExpandedString('Id');
 end;
 
-procedure TKListFilterBase.GetRecordPage;
-var
-  LStart: Integer;
-  LLimit: Integer;
-  LPageRecordCount: Integer;
-  LDBQuery: TEFDBQuery;
-begin
-  Assert(Assigned(FServerStore));
-
-  LDBQuery := Session.Config.DBConnections[GetDatabaseName(FConfig, Self, FViewTable.DatabaseName)].CreateDBQuery;
-  try
-    LDBQuery.CommandText := ExpandFilterValues(Owner as TExtObjectList, FConfig.GetExpandedString('CommandText'));
-    LDBQuery.Open;
-    try
-      Assert(LDBQuery.DataSet.FieldCount = 2);
-      FServerStore.Load(LDBQuery, False, True);
-    finally
-      LDBQuery.Close;
-    end;
-  finally
-    FreeAndNil(LDBQuery);
-  end;
-
-  LStart := Session.QueryAsInteger['start'];
-  LLimit := Session.QueryAsInteger['limit'];
-  LPageRecordCount := Min(LLimit, FServerStore.RecordCount - LStart);
-
-  ExtSession.ResponseItems.AddJSON('{Total: ' + IntToStr(FServerStore.RecordCount)
-    + ', Root: ' + FServerStore.GetAsJSON(False, LStart, LPageRecordCount) + '}');
-end;
-
 procedure TKListFilterBase.Invalidate;
 begin
   SetRawValue('');
@@ -572,6 +544,7 @@ end;
 procedure TKListFilterBase.SetConfig(const AConfig: TEFNode);
 var
   I: Integer;
+  LFieldNames: TStringDynArray;
 begin
   Assert(Assigned(AConfig));
 
@@ -588,7 +561,9 @@ begin
   Store := TExtDataStore.Create(Self);
   FServerStore.Header.AddField('Id');
   FServerStore.Header.AddField('Description');
-  FServerStore.Key.SetFieldNames(['Id']);
+  SetLength(LFieldNames,1);
+  LFieldNames[0] := 'Id';
+  FServerStore.Key.SetFieldNames(LFieldNames);
   Store.Url := MethodURI(GetRecordPage);
   Store.Reader := TExtDataJsonReader.Create(Self, JSObject('')); // Must pass '' otherwise invalid code is generated.
   TExtDataJsonReader(Store.Reader).Root := 'Root';
@@ -599,6 +574,7 @@ begin
   ValueField := 'Id';
   DisplayField := 'Description';
   Width := CharsToPixels(FConfig.GetInteger('Width', DEFAULT_FILTER_WIDTH));
+  ListWidth := CharsToPixels(FConfig.GetInteger('ListWidth', DEFAULT_FILTER_WIDTH));
   TypeAhead := True;
   MinChars := FConfig.GetInteger('AutoCompleteMinChars', 4);
 end;
@@ -613,13 +589,24 @@ end;
 procedure TKListFilter.SetConfig(const AConfig: TEFNode);
 var
   LDefaultFilter: TEFNode;
+  I: Integer;
+  LRecord: TKRecord;
 begin
   inherited;
   FItems := FConfig.GetNode('Items');
   Assert(Assigned(FItems));
+
+  Assert(Assigned(FServerStore));
+  FServerStore.Records.Clear;
+  for I := 0 to FItems.ChildCount - 1 do
+  begin
+    LRecord := FServerStore.AppendRecord(nil);
+    LRecord.Fields[0].AsInteger := I;
+    LRecord.Fields[1].AsString := FItems.Children[I].AsExpandedString;
+  end;
+
   //PageSize := 10;
   //Resizable := True;
-  //MinListWidth := LFieldWidth;
   //MinHeight := LinesToPixels(5);
   LDefaultFilter := GetDefaultFilter(FItems);
   if Assigned(LDefaultFilter) then
@@ -636,6 +623,8 @@ begin
     OnSelect := ComboBoxSelect;
     OnChange := ComboBoxChange;
   end;
+  if FActiveIndex >= 0 then
+    SetValue(FServerStore.Records[FActiveIndex].Fields[1].AsString);
 end;
 
 procedure TKListFilter.ComboBoxSelect(Combo: TExtFormComboBox; RecordJS: TExtDataRecord; Index: Integer);
@@ -671,6 +660,15 @@ begin
     Result := '';
 end;
 
+procedure TKListFilter.GetRecordPage;
+begin
+  inherited;
+  Assert(Assigned(FServerStore));
+
+  ExtSession.ResponseItems.AddJSON('{Total: ' + IntToStr(FServerStore.RecordCount)
+    + ', Root: ' + FServerStore.GetAsJSON(False) + '}');
+end;
+
 { TKDynaListFilter }
 
 procedure TKDynaListFilter.ValueChanged;
@@ -701,12 +699,44 @@ begin
     Result := '';
 end;
 
+procedure TKDynaListFilter.GetRecordPage;
+var
+  LStart: Integer;
+  LLimit: Integer;
+  LPageRecordCount: Integer;
+  LDBQuery: TEFDBQuery;
+begin
+  inherited;
+
+  Assert(Assigned(FServerStore));
+
+  LDBQuery := Session.Config.DBConnections[GetDatabaseName(FConfig, Self, FViewTable.DatabaseName)].CreateDBQuery;
+  try
+    LDBQuery.CommandText := ExpandFilterValues(Owner as TExtObjectList, FConfig.GetExpandedString('CommandText'));
+    LDBQuery.Open;
+    try
+      Assert(LDBQuery.DataSet.FieldCount = 2);
+      FServerStore.Load(LDBQuery, False, True);
+    finally
+      LDBQuery.Close;
+    end;
+  finally
+    FreeAndNil(LDBQuery);
+  end;
+
+  LStart := Session.QueryAsInteger['start'];
+  LLimit := Session.QueryAsInteger['limit'];
+  LPageRecordCount := Min(LLimit, FServerStore.RecordCount - LStart);
+
+  ExtSession.ResponseItems.AddJSON('{Total: ' + IntToStr(FServerStore.RecordCount)
+    + ', Root: ' + FServerStore.GetAsJSON(False, LStart, LPageRecordCount) + '}');
+end;
+
 procedure TKDynaListFilter.SetConfig(const AConfig: TEFNode);
 begin
   inherited;
   //PageSize := 10;
   //Resizable := True;
-  //MinListWidth := LFieldWidth;
   //MinHeight := LinesToPixels(5);
   if FConfig.GetBoolean('Sys/IsReadOnly') then
     Disabled := True
@@ -733,7 +763,7 @@ begin
   Assert(Assigned(AConfig));
   FConfig := AConfig;
 
-  LAutoSearchAfterChars := AConfig.GetInteger('AutoSearchAfterChars', 4);
+  LAutoSearchAfterChars := AConfig.GetInteger('AutoSearchAfterChars', 0);
   if LAutoSearchAfterChars <> 0 then
   begin
     // Auto-fire change event when at least MinChars characters are typed.
@@ -742,7 +772,9 @@ begin
   end;
   FieldLabel := _(AConfig.AsString);
   Width := CharsToPixels(AConfig.GetInteger('Width', DEFAULT_FILTER_WIDTH));
-  FCurrentValue := '';
+  FCurrentValue := AConfig.GetExpandedString('DefaultValue');
+  if FCurrentValue <> '' then
+    SetValue(FCurrentValue);
   if FConfig.GetBoolean('Sys/IsReadOnly') then
     Disabled := True
   else
@@ -797,13 +829,20 @@ end;
 
 procedure TKDateSearchFilter.SetConfig(const AConfig: TEFNode);
 var
-  LFormat: string;
+  LDefaultValue, LFormat: string;
 begin
   Assert(Assigned(AConfig));
   FConfig := AConfig;
   FieldLabel := _(AConfig.AsString);
   Width := CharsToPixels(AConfig.GetInteger('Width', 12));
-  FCurrentValue := 0;
+  LDefaultValue := AConfig.GetExpandedString('DefaultValue');
+  if LDefaultValue <> '' then
+  begin
+    FCurrentValue := StrToDate(LDefaultValue, Session.Config.UserFormatSettings);
+    SetValue(DateToStr(FCurrentValue, Session.Config.UserFormatSettings));
+  end
+  else
+    FCurrentValue := 0;
   LFormat := Session.Config.UserFormatSettings.ShortDateFormat;
   Format := DelphiDateFormatToJSDateFormat(LFormat);
   AltFormats := DelphiDateFormatToJSDateFormat(Session.Config.JSFormatSettings.ShortDateFormat);
@@ -1196,6 +1235,7 @@ begin
   if LText = '' then
     LText := _('Apply');
   Text := LText;
+  SetIconAndScale(AConfig.GetString('ImageName'), AConfig.GetString('ButtonScale', 'small'));
   On('click', Ajax(ButtonClick));
 end;
 
@@ -1230,14 +1270,18 @@ begin
 end;
 
 procedure TKFilterSpacer.SetConfig(const AConfig: TEFNode);
+var
+  LCode: string;
 begin
   Assert(Assigned(AConfig));
 
   Width := CharsToPixels(AConfig.GetInteger('Width', DEFAULT_FILTER_WIDTH));
   // Hide keeping set width.
   Title := '&nbsp;';
-  //On('afterrender', JSFunction(JSName + '.getEl().setOpacity(0);'));
-  Session.ResponseItems.ExecuteJSCode(Self, JSName + '.getEl().setOpacity(0);');
+
+  LCode := 'var e = ' + JSName + '.getEl(); if (e) e.setOpacity(0);';
+  On('afterrender', JSFunction(LCode));
+  Session.ResponseItems.ExecuteJSCode(Self, LCode);
 end;
 
 procedure TKFilterSpacer.SetViewTable(const AViewTable: TKViewTable);

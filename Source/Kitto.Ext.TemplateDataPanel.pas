@@ -21,19 +21,23 @@ unit Kitto.Ext.TemplateDataPanel;
 interface
 
 uses
-  Ext, ExtChart, ExtData,
+  Ext, ExtChart, ExtData, ExtPascal, ExtPascalUtils,
   EF.Tree,
   Kitto.Metadata.DataView, Kitto.Ext.Base, Kitto.Ext.DataPanelLeaf;
 
 type
-  TKExTemplateDataPanel = class(TKExtDataPanelLeafController)
+  TKExtTemplateDataPanel = class(TKExtDataPanelLeafController)
   strict private
     FDataView: TExtDataView;
     procedure CreateTemplateView;
+    function ProcessTemplate(const ATemplate: string): string;
   strict protected
     procedure InitDefaults; override;
     procedure SetViewTable(const AValue: TKViewTable); override;
     procedure AddTopToolbarToolViewButtons; override;
+    function IsActionSupported(const AActionName: string): Boolean; override;
+    function GetSelectCall(const AMethod: TExtProcedure): TExtFunction; override;
+    function GetSelectConfirmCall(const AMessage: string; const AMethod: TExtProcedure): string; override;
   published
   end;
 
@@ -46,47 +50,93 @@ uses
   Kitto.Types, Kitto.Ext.Utils, Kitto.Metadata.Models, Kitto.Metadata.Views,
   Kitto.Ext.Session, Kitto.Ext.Controller, Kitto.Ext.XSLTools;
 
-{ TKExTemplateDataPanel }
+{ TKExtTemplateDataPanel }
 
-procedure TKExTemplateDataPanel.AddTopToolbarToolViewButtons;
+procedure TKExtTemplateDataPanel.AddTopToolbarToolViewButtons;
 begin
   inherited AddToolViewButtons(ViewTable.FindNode('Controller/ToolViews'), TopToolbar);
 end;
 
-procedure TKExTemplateDataPanel.CreateTemplateView;
+procedure TKExtTemplateDataPanel.CreateTemplateView;
 var
-  LTemplateContent: string;
+  LFileName: string;
+  LTemplate: string;
 begin
-  LTemplateContent := Config.GetExpandedString('Template');
-  if FileExists(LTemplateContent) then
-  begin
-    FDataView.Tpl := TEFMacroExpansionEngine.Instance.Expand(TextFileToString(LTemplateContent, 
-      TEncoding.UTF8))
-  end
+  LFileName := Session.Config.FindResourcePathName(Config.GetExpandedString('TemplateFileName'));
+  if LFileName <> '' then
+    FDataView.Tpl := ProcessTemplate(TEFMacroExpansionEngine.Instance.Expand(TextFileToString(LFileName, TEncoding.UTF8)))
   else
-    FDataView.Tpl := LTemplateContent;
+  begin
+    LTemplate := Config.GetExpandedString('Template');
+    if LTemplate = '' then
+      FDataView.Tpl := 'TemplateFileName or Template parameters not specified.'
+    else
+      FDataView.Tpl := ProcessTemplate(LTemplate);
+  end;
   FDataView.Store := ClientStore;
 end;
 
-procedure TKExTemplateDataPanel.InitDefaults;
+function TKExtTemplateDataPanel.GetSelectCall(const AMethod: TExtProcedure): TExtFunction;
+begin
+  Result := JSFunction(Format('ajaxDataViewSelection("yes", "", {params: {methodURL: "%s", dataView: %s, fieldNames: "%s"}});',
+    [MethodURI(AMethod), FDataView.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')]));
+end;
+
+function TKExtTemplateDataPanel.GetSelectConfirmCall(const AMessage: string; const AMethod: TExtProcedure): string;
+begin
+  { TODO : Replace the caption tag in AMessage. }
+  Result := Format('selectDataViewConfirmCall("%s", "%s", %s, "%s", {methodURL: "%s", dataView: %s, fieldNames: "%s"});',
+    [_(Session.Config.AppTitle), AMessage, FDataView.JSName, ViewTable.Model.CaptionField.FieldName, MethodURI(AMethod),
+    FDataView.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')]);
+end;
+
+function TKExtTemplateDataPanel.ProcessTemplate(const ATemplate: string): string;
+var
+  I: Integer;
+begin
+  Assert(Assigned(ViewTable));
+
+  Result := ATemplate;
+  for I := 0 to ViewTable.FieldCount - 1 do
+  begin
+    if ViewTable.Fields[I].IsPicture then
+      Result := ReplaceText(Result, '{' + ViewTable.Fields[I].AliasedName + '}',
+        '{' + ViewTable.Fields[I].GetURLFieldName + '}');
+  end;
+end;
+
+procedure TKExtTemplateDataPanel.InitDefaults;
 begin
   inherited;
   FDataView := TExtDataView.CreateAndAddTo(Items);
   FDataView.EmptyText := _('No data to display.');
   FDataView.Region := rgCenter;
-  FDataView.Store := ClientStore;
   FDataView.AutoScroll := True;
 end;
 
-procedure TKExTemplateDataPanel.SetViewTable(const AValue: TKViewTable);
+function TKExtTemplateDataPanel.IsActionSupported(const AActionName: string): Boolean;
+begin
+  Result := True;
+end;
+
+procedure TKExtTemplateDataPanel.SetViewTable(const AValue: TKViewTable);
 begin
   Assert(Assigned(AValue));
   inherited;
+  FDataView.Id := Config.GetString('TemplateView/Id');
+  FDataView.ItemSelector := Config.GetString('TemplateView/SelectorClass');
+  FDataView.OverClass := Config.GetString('TemplateView/OverClass');
+  if ViewTable.GetBoolean('Controller/IsMultiSelect', False) then
+    FDataView.MultiSelect := True
+  else
+    FDataView.SingleSelect := True;
+//  FDataView.On('dblclick', JSFunction('this, idx, node, e', GetAjaxCode(
+//    DefaultAction, )
   CreateTemplateView;
 end;
 
 initialization
-  TKExtControllerRegistry.Instance.RegisterClass('TemplateDataPanel', TKExTemplateDataPanel);
+  TKExtControllerRegistry.Instance.RegisterClass('TemplateDataPanel', TKExtTemplateDataPanel);
 
 finalization
   TKExtControllerRegistry.Instance.UnregisterClass('TemplateDataPanel');

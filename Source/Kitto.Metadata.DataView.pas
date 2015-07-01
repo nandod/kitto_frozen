@@ -98,6 +98,10 @@ type
     function GetAliasedDBName: string;
     function GetQualifiedAliasedDBName: string;
     function GetLookupFilter: string;
+    function GetDBNameOrExpression: string;
+    function GetFieldType: TFieldType;
+    function GetIsPicture: Boolean;
+    const URL_PREFIX = '_URL_';
   strict protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
     function GetDataType: TEFDataType; override;
@@ -129,6 +133,7 @@ type
     property QualifiedAliasedDBName: string read GetQualifiedAliasedDBName;
     property QualifiedDBName: string read GetQualifiedDBName;
     property QualifiedDBNameOrExpression: string read GetQualifiedDBNameOrExpression;
+    property DBNameOrExpression: string read GetDBNameOrExpression;
     property AllowedValues: TEFPairs read GetAllowedValues;
 
     property CanInsert: Boolean read GetCanInsert;
@@ -251,6 +256,7 @@ type
     property DisplayWidth: Integer read GetDisplayWidth;
     property DecimalPrecision: Integer read GetDecimalPrecision;
     property DataType: TEFDataType read GetDataType;
+    property FieldType: TFieldType read GetFieldType;
     property ActualDataType: TEFDataType read GetActualDataType;
     property Size: Integer read GetSize;
     property IsBlob: Boolean read GetIsBlob;
@@ -309,6 +315,17 @@ type
     function GetColorsAsPairs: TEFPairs;
 
     function GetFilterByFields: TArray<TKFilterByViewField>;
+
+    /// <summary>
+    ///  Translate and returns a sort clause suitable for ordering a set of
+    ///  records on this field.
+    /// </summary>
+    function BuildSortClause(const AIsDescending: Boolean): string;
+
+    property IsPicture: Boolean read GetIsPicture;
+
+    function GetURLFieldName: string;
+    class function IsURLFieldName(const AFieldName: string): Boolean;
   end;
 
   TKViewFields = class(TKMetadataItem)
@@ -345,28 +362,29 @@ type
     property Header: TKViewTableHeader read GetHeader;
     property Records: TKViewTableRecords read GetRecords;
 
-    procedure Load(const AFilter: string; const AOrderBy: string);
-
-    /// <summary>Loads a page of data according to AFrom and AFor arguments,
-    /// and returns the total number of records in all pages.</summary>
+    /// <summary>
+    ///  Loads a page of data according to AFrom and AFor arguments,
+    ///  and returns the total number of records in all pages.
+    /// </summary>
     /// <param name="AFilter">Additional SQL filter.</param>
-    /// <param name="AFrom">Number of the first record to retrieve
-    /// (0-based).</param>
+    /// <param name="AFrom">Number of the first record to retrieve (0-based).</param>
     /// <param name="ATo">Maximum count of records to retrieve.</param>
     /// <remarks>
-    ///   <para>This method will perform two database queries, one to get the
-    ///   total count and one to get the requested data page.</para>
-    ///   <para>If AFrom or ATo are 0, the method calls <see cref=
-    ///   "Load" />.</para>
+    ///  <para>
+    ///   This method will perform two database queries, one to get the
+    ///   total count and one to get the requested data page.
+    ///  </para>
+    ///  <para>
+    ///   If AFrom or ATo are 0, the method calls <see cref="Load" />.
+    ///  </para>
     /// </remarks>
-    function LoadPage(const AFilter: string; const AOrderBy: string; const AFrom, AFor: Integer): Integer;
+    function Load(const AFilter, ASort: string; const AFrom: Integer = 0; const AFor: Integer = 0;
+      const AForEachRecord: TProc<TKVIewTableRecord> = nil): Integer; overload;
 
     /// <summary>
     ///  Appends a record and fills it with the specified values.
     /// </summary>
     function AppendRecord(const AValues: TEFNode): TKViewTableRecord;
-
-    procedure Save(const AUseTransaction: Boolean);
 
     /// <summary>
     ///  Locates and returns a record from the key values stored in AKey.
@@ -398,6 +416,8 @@ type
   public
     function AddField(const AFieldName: string): TKViewTableHeaderField;
     property Fields[I: Integer]: TKViewTableHeaderField read GetField;
+    function FindField(const AFieldName: string): TKViewTableHeaderField;
+    function FieldByName(const AFieldName: string): TKViewTableHeaderField;
   end;
 
   TKViewTableHeaderField = class(TKHeaderField)
@@ -478,7 +498,6 @@ type
     procedure LoadDetailStores;
     property DetailStores[I: Integer]: TKViewTableStore read GetDetailsStore;
     function AddDetailStore(const AStore: TKViewTableStore): TKViewTableStore;
-    procedure Save(const AUseTransaction: Boolean);
     procedure Refresh(const AStrict: Boolean = False);
     procedure SetDetailFieldValues(const AMasterRecord: TKViewTableRecord);
     function FindDetailStoreByModelName(const AModelName: string): TKViewTableStore;
@@ -526,6 +545,7 @@ type
 
   TKViewTable = class(TKMetadataItem)
   strict private
+    FFindingNode: Boolean;
     function GetIsDetail: Boolean;
     function GetField(I: Integer): TKViewField;
     function GetFieldCount: Integer;
@@ -550,6 +570,8 @@ type
     function GetFields: TKViewFields;
     function GetDetailTables: TKViewTables;
   public
+    function GetDefaultDisplayLabel: string;
+
     function FindNode(const APath: string;
       const ACreateMissingNodes: Boolean = False): TEFNode; override;
 
@@ -559,6 +581,8 @@ type
 
     property IsDetail: Boolean read GetIsDetail;
     property MasterTable: TKViewTable read GetMasterTable;
+
+    function HasModelName: Boolean;
 
     /// <summary>
     ///   If the view table is a detail, this property contains the name
@@ -927,6 +951,11 @@ begin
     Result := '';
 end;
 
+function TKViewTable.HasModelName: Boolean;
+begin
+  Result := ModelName <> '';
+end;
+
 function TKViewTable.GetModel: TKModel;
 begin
   Result := View.Catalog.Models.ModelByName(ModelName);
@@ -996,6 +1025,14 @@ begin
     Result := '(' + Result + ')';
 end;
 
+function TKViewTable.GetDefaultDisplayLabel: string;
+begin
+  if IsDetail then
+    Result := ModelDetailReference.DisplayLabel
+  else
+    Result := Model.DisplayLabel;
+end;
+
 function TKViewTable.GetDetailTableCount: Integer;
 begin
   Result := GetDetailTables.GetChildCount<TKViewTable>;
@@ -1010,12 +1047,7 @@ function TKViewTable.GetDisplayLabel: string;
 begin
   Result := GetString('DisplayLabel');
   if Result = '' then
-  begin
-    if IsDetail then
-      Result := ModelDetailReference.DisplayLabel
-    else
-      Result := Model.DisplayLabel;
-  end;
+    Result := GetDefaultDisplayLabel;
 end;
 
 function TKViewTable.GetField(I: Integer): TKViewField;
@@ -1063,19 +1095,42 @@ begin
 end;
 
 function TKViewTable.GetFields: TKViewFields;
+var
+  LFields: TKViewFields;
 
   procedure CreateDefaultFields;
   var
-    I: Integer;
+    I, J, K: Integer;
+    LModelField: TKModelField;
+    LAutoAddFields: TEFNode;
+    LViewField: TKViewField;
+    LAutoAddField: TEFNode;
   begin
     for I := 0 to Model.FieldCount - 1 do
-      GetNode('Fields').AddChild(TKViewField.Create(Model.Fields[I].FieldName));
+    begin
+      LModelField := Model.Fields[I];
+      LViewField := TKViewField.Create(LModelField.FieldName);
+      LFields.AddChild(LViewField);
+      LAutoAddFields := LModelField.FindNode('AutoAddFields');
+      if Assigned(LAutoAddFields) then
+      begin
+        for J := 0 to LAutoAddFields.ChildCount - 1 do
+        begin
+          LAutoAddField := LAutoAddFields.Children[J];
+          LViewField := TKViewField.Create(LModelField.FieldName + '.' + LAutoAddField.Name, LAutoAddField.AsExpandedString);
+          for K := 0 to LAutoAddField.ChildCount - 1 do
+            LViewField.AddChild(TEFNode.Clone(LAutoAddField.Children[K]));
+          LFields.AddChild(LViewField);
+        end;
+      end;
+    end;
   end;
 
 begin
-  Result := GetNode('Fields', True) as TKViewFields;
-  if Result.FieldCount = 0 then
+  LFields := GetNode('Fields', True) as TKViewFields;
+  if LFields.FieldCount = 0 then
     CreateDefaultFields;
+  Result := LFields;
 end;
 
 function TKViewTable.GetFilterByFields(APredicate: TFunc<TKFilterByViewField, Boolean>): TArray<TKFilterByViewField>;
@@ -1146,7 +1201,7 @@ end;
 function TKViewTable.GetPluralDisplayLabel: string;
 begin
   Result := GetString('PluralDisplayLabel');
-  if Result = ''then
+  if Result = '' then
     Result := Model.PluralDisplayLabel;
 end;
 
@@ -1187,9 +1242,17 @@ function TKViewTable.FindNode(const APath: string;
   const ACreateMissingNodes: Boolean): TEFNode;
 begin
   Result := inherited FindNode(APath, ACreateMissingNodes);
-  if not Assigned(Result) then
-    // ACreateMissingNodes is False here.
-    Result := Model.FindNode(APath, False);
+  if not Assigned(Result) and not FFindingNode then
+  begin
+    // Prevent Stack-overflow when testing HasModelName
+    FFindingNode := True;
+    try
+      if HasModelName then
+        Result := Model.FindNode(APath, False);
+    finally
+      FFindingNode := False;
+    end;
+  end;
 end;
 
 function TKViewTable.FindParentField(const AFieldName: string): TKViewField;
@@ -1396,6 +1459,18 @@ begin
   end;
 end;
 
+function TKViewField.BuildSortClause(const AIsDescending: Boolean): string;
+var
+  LResult: string;
+begin
+  TKSQLBuilder.CreateAndExecute(
+    procedure (ASQLBuilder: TKSQLBuilder)
+    begin
+      LResult := ASQLBuilder.GetSortClause(Self, AIsDescending);
+    end);
+  Result := LResult;
+end;
+
 function TKViewField.CanEditField(const AInsertOperation: Boolean): Boolean;
 var
   LReadOnly: Boolean;
@@ -1423,6 +1498,7 @@ var
   LDerivedFields: TArray<TKViewField>;
   LDerivedField: TKViewField;
   LDBQuery: TEFDBQuery;
+  LHasDerivedFields: Boolean;
 begin
   Assert(IsReference);
 
@@ -1439,7 +1515,12 @@ begin
       // Get data.
       LDBQuery := TKConfig.Instance.DBConnections[Table.DatabaseName].CreateDBQuery;
       try
-        if TKSQLBuilder.BuildDerivedSelectQuery(Self, LDBQuery, AKeyValues) then
+        TKSQLBuilder.CreateAndExecute(
+          procedure (ASQLBuilder: TKSQLBuilder)
+          begin
+            LHasDerivedFields := ASQLBuilder.BuildDerivedSelectQuery(Self, LDBQuery, AKeyValues);
+          end);
+        if LHasDerivedFields then
           Result.Load(LDBQuery, False, True);
       finally
         FreeAndNil(LDBQuery);
@@ -1508,7 +1589,12 @@ begin
     // Get data.
     LDBQuery := TKConfig.Instance.DBConnections[Table.DatabaseName].CreateDBQuery;
     try
-      TKSQLBuilder.BuildSingletonSelectQuery(ModelField.ReferencedModel, LDBQuery, AKeyValues);
+      with TKSQLBuilder.Create do
+        try
+          BuildSingletonSelectQuery(ModelField.ReferencedModel, LDBQuery, AKeyValues);
+        finally
+          Free;
+        end;
       LStore.Load(LDBQuery, False, True);
     finally
       FreeAndNil(LDBQuery);
@@ -1688,11 +1774,19 @@ end;
 function TKViewField.GetQualifiedDBNameOrExpression: string;
 begin
   if IsReference then
-    Result := FieldName + '.' + ModelField.ReferencedModel.CaptionField.FieldNameOrExpression
+    Result := DBName + '.' + ModelField.ReferencedModel.CaptionField.DBColumnNameOrExpression
   else if Expression <> '' then
     Result := Expression
   else
     Result := QualifiedDBName;
+end;
+
+function TKViewField.GetFieldType: TFieldType;
+begin
+  if IsReference then
+    Result := ModelField.ReferencedModel.CaptionField.DataType.GetFieldType
+  else
+    Result := GetDataType.GetFieldType;
 end;
 
 function TKViewField.GetDataType: TEFDataType;
@@ -1717,6 +1811,16 @@ begin
   end
   else
     Result := ModelField.DBColumnName;
+end;
+
+function TKViewField.GetDBNameOrExpression: string;
+begin
+  if IsReference then
+    Result := ModelField.ReferencedModel.CaptionField.DBColumnNameOrExpression
+  else if Expression <> '' then
+    Result := Expression
+  else
+    Result := DBName;
 end;
 
 function TKViewField.GetModelField: TKModelField;
@@ -1960,6 +2064,11 @@ begin
   Result := GetBoolean('IsPassword');
 end;
 
+function TKViewField.GetIsPicture: Boolean;
+begin
+  Result := GetBoolean('IsPicture');
+end;
+
 function TKViewField.GetIsReadOnly: Boolean;
 begin
   Result := GetBoolean('IsReadOnly');
@@ -1986,10 +2095,20 @@ begin
   Result := (Parent as TKViewFields).Table;
 end;
 
+function TKViewField.GetURLFieldName: string;
+begin
+  Result := URL_PREFIX + AliasedName;
+end;
+
 function TKViewField.IsAccessGranted(const AMode: string): Boolean;
 begin
   Result := TKConfig.Instance.IsAccessGranted(GetResourceURI, AMode)
     and TKConfig.Instance.IsAccessGranted(ModelField.GetResourceURI, AMode);
+end;
+
+class function TKViewField.IsURLFieldName(const AFieldName: string): Boolean;
+begin
+  Result := AFieldName.StartsWith(URL_PREFIX);
 end;
 
 function TKViewField.GetReferenceName: string;
@@ -2051,8 +2170,7 @@ end;
 
 { TKViewTableStore }
 
-function TKViewTableStore.AppendRecord(
-  const AValues: TEFNode): TKViewTableRecord;
+function TKViewTableStore.AppendRecord(const AValues: TEFNode): TKViewTableRecord;
 begin
   Result := inherited AppendRecord(AValues) as TKViewTableRecord;
   // The above will cause InternalAfterReadFromNode to be called, which
@@ -2069,26 +2187,6 @@ begin
   inherited Create;
   FViewTable := AViewTable;
   SetupFields;
-end;
-
-procedure TKViewTableStore.Save(const AUseTransaction: Boolean);
-var
-  I: Integer;
-  LConnection: TEFDBConnection;
-begin
-  LConnection := TKConfig.Instance.DBConnections[ViewTable.DatabaseName];
-  if AUseTransaction then
-    LConnection.StartTransaction;
-  try
-    for I := 0 to RecordCount - 1 do
-      Records[I].Save(False);
-    if AUseTransaction then
-      LConnection.CommitTransaction;
-  except
-    if AUseTransaction then
-      LConnection.RollbackTransaction;
-    raise;
-  end;
 end;
 
 procedure TKViewTableStore.SetupFields;
@@ -2122,6 +2220,11 @@ begin
     SetupField(LViewField, LViewField.AliasedName, LViewField.DataType,
       LViewField.IsKey and not LViewField.IsReference, LViewField.IsAccessGranted(ACM_READ),
       LViewField.ModelField);
+    // URL fields for datatypes that provide downloadable content, such as images.
+    if LViewField.IsPicture then
+      SetupField(LViewField, LViewField.GetURLFieldName,
+        TEFDataTypeFactory.Instance.GetDataType('String'),
+        False, LViewField.IsAccessGranted(ACM_READ), LViewField.ModelField);
     // Expand reference fields. Also keep the reference field itself (above)
     // as it will hold the user-readable reference description.
     // For each reference field we create:
@@ -2186,7 +2289,8 @@ begin
   Result := inherited Records as TKViewTableRecords;
 end;
 
-procedure TKViewTableStore.Load(const AFilter: string; const AOrderBy: string);
+function TKViewTableStore.Load(const AFilter, ASort: string;
+  const AFrom, AFor: Integer; const AForEachRecord: TProc<TKVIewTableRecord>): Integer;
 var
   LDBQuery: TEFDBQuery;
 begin
@@ -2194,39 +2298,48 @@ begin
 
   LDBQuery := TKConfig.Instance.DBConnections[ViewTable.DatabaseName].CreateDBQuery;
   try
-    TKSQLBuilder.BuildSelectQuery(FViewTable, AFilter, AOrderBy, LDBQuery, FMasterRecord);
-    inherited Load(LDBQuery);
-  finally
-    FreeAndNil(LDBQuery);
-  end;
-end;
-
-function TKViewTableStore.LoadPage(const AFilter: string; const AOrderBy: string;
-  const AFrom, AFor: Integer): Integer;
-var
-  LDBQuery: TEFDBQuery;
-begin
-  if (AFrom = 0) and (AFor = 0) then
-  begin
-    Load(AFilter, AOrderBy);
-    Result := RecordCount;
-  end
-  else
-  begin
-    LDBQuery := TKConfig.Instance.DBConnections[ViewTable.DatabaseName].CreateDBQuery;
-    try
-      TKSQLBuilder.BuildCountQuery(FViewTable, AFilter, LDBQuery, FMasterRecord);
+    if (AFrom = 0) and (AFor = 0) then
+    begin
+      TKSQLBuilder.CreateAndExecute(
+        procedure (ASQLBuilder: TKSQLBuilder)
+        begin
+          ASQLBuilder.BuildSelectQuery(FViewTable, AFilter, ASort, LDBQuery, FMasterRecord);
+        end);
+      inherited Load(LDBQuery, False, False,
+        procedure (ARecord: Kitto.Store.TKRecord)
+        begin
+          if Assigned(AForEachRecord) then
+            AForEachRecord(ARecord as TKViewTableRecord);
+        end);
+      Result := RecordCount;
+    end
+    else
+    begin
+      TKSQLBuilder.CreateAndExecute(
+        procedure (ASQLBuilder: TKSQLBuilder)
+        begin
+          ASQLBuilder.BuildCountQuery(FViewTable, AFilter, LDBQuery, FMasterRecord);
+        end);
       LDBQuery.Open;
       try
         Result := LDBQuery.DataSet.Fields[0].AsInteger;
       finally
         LDBQuery.Close;
       end;
-      TKSQLBuilder.BuildSelectQuery(FViewTable, AFilter, AOrderBy, LDBQuery, FMasterRecord, AFrom, AFor);
-      inherited Load(LDBQuery);
-    finally
-      FreeAndNil(LDBQuery);
+      TKSQLBuilder.CreateAndExecute(
+        procedure (ASQLBuilder: TKSQLBuilder)
+        begin
+          ASQLBuilder.BuildSelectQuery(FViewTable, AFilter, ASort, LDBQuery, FMasterRecord, AFrom, AFor);
+        end);
+      inherited Load(LDBQuery, False, False,
+        procedure (ARecord: Kitto.Store.TKRecord)
+        begin
+          if Assigned(AForEachRecord) then
+            AForEachRecord(ARecord as TKViewTableRecord);
+        end);
     end;
+  finally
+    FreeAndNil(LDBQuery);
   end;
 end;
 
@@ -2235,6 +2348,16 @@ end;
 function TKViewTableHeader.AddField(const AFieldName: string): TKViewTableHeaderField;
 begin
   Result := inherited AddField(AFieldName) as TKViewTableHeaderField;
+end;
+
+function TKViewTableHeader.FieldByName(const AFieldName: string): TKViewTableHeaderField;
+begin
+  Result := inherited FieldByName(AFieldName) as TKViewTableHeaderField;
+end;
+
+function TKViewTableHeader.FindField(const AFieldName: string): TKViewTableHeaderField;
+begin
+  Result := inherited FindField(AFieldName) as TKViewTableHeaderField;
 end;
 
 function TKViewTableHeader.GetChildClass(const AName: string): TEFNodeClass;
@@ -2392,7 +2515,11 @@ begin
 
   LDBQuery := TKConfig.Instance.DBConnections[ViewTable.DatabaseName].CreateDBQuery;
   try
-    TKSQLBuilder.BuildSingletonSelectQuery(ViewTable, LDBQuery, GetFieldValues(Store.ViewTable.Model.GetKeyFieldNames));
+    TKSQLBuilder.CreateAndExecute(
+      procedure (ASQLBuilder: TKSQLBuilder)
+      begin
+        ASQLBuilder.BuildSingletonSelectQuery(ViewTable, LDBQuery, GetFieldValues(Store.ViewTable.Model.GetKeyFieldNames));
+      end);
     LDBQuery.Open;
     if AStrict and LDBQuery.DataSet.IsEmpty then
       raise Exception.Create('Record not found');
@@ -2607,71 +2734,6 @@ begin
     begin
       Result := ReplaceText(Result, '{' + LField.FieldName + '}', LField.GetAsJSONValue(True, False, True));
     end;
-  end;
-end;
-
-procedure TKViewTableRecord.Save(const AUseTransaction: Boolean);
-var
-  LDBCommand: TEFDBCommand;
-  LRowsAffected: Integer;
-  I: Integer;
-  LFileToDelete: string;
-  LDBConnection: TEFDBConnection;
-begin
-  if State = rsClean then
-    Exit;
-
-  // Take care of any instructions to clear fields.
-  for I := 0 to FieldCount - 1 do
-  begin
-    if Fields[I].GetBoolean('Sys/SetToNull') then
-      Fields[I].SetToNull;
-  end;
-
-  // BEFORE rules are applied before calling this method.
-  LDBConnection := TKConfig.Instance.DBConnections[ViewTable.DatabaseName];
-  if AUseTransaction then
-    LDBConnection.StartTransaction;
-  try
-    LDBCommand := LDBConnection.CreateDBCommand;
-    try
-      case State of
-        rsNew: TKSQLBuilder.BuildInsertCommand(LDBCommand, Self);
-        rsDirty: TKSQLBuilder.BuildUpdateCommand(LDBCommand, Self);
-        rsDeleted: TKSQLBuilder.BuildDeleteCommand(LDBCommand, Self);
-      else
-        raise EKError.CreateFmt('Unexpected record state %s.', [GetEnumName(TypeInfo(TKRecordState), Ord(State))]);
-      end;
-      if LDBCommand.CommandText <> '' then
-      begin
-        LRowsAffected := LDBCommand.Execute;
-        if LRowsAffected <> 1 then
-          raise EKError.CreateFmt('Update error. Rows affected: %d.', [LRowsAffected]);
-      end;
-      { TODO : implement cascade delete? }
-      for I := 0 to DetailStoreCount - 1 do
-        DetailStores[I].Save(False);
-      ApplyAfterRules;
-      if AUseTransaction then
-        LDBConnection.CommitTransaction;
-      // Take care of any cleared external files.
-      for I := 0 to FieldCount - 1 do
-      begin
-        if (Fields[I].DataType is TKFileReferenceDataType) and (Fields[I].IsNull) then
-        begin
-          LFileToDelete := Fields[I].GetString('Sys/DeleteFile');
-          if FileExists(LFileToDelete) then
-            DeleteFile(LFileToDelete);
-        end;
-      end;
-      MarkAsClean;
-    finally
-      FreeAndNil(LDBCommand);
-    end;
-  except
-    if AUseTransaction then
-      LDBConnection.RollbackTransaction;
-    raise;
   end;
 end;
 

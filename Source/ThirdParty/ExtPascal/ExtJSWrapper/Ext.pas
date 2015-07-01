@@ -2936,13 +2936,13 @@ type
     procedure SetFBlockRefresh(Value: Boolean);
     procedure SetFDeferEmptyText(Value: Boolean);
     procedure SetEmptyText(AValue: string);
-    procedure SetFItemSelector(Value: string);
+    procedure SetItemSelector(const AValue: string);
     procedure SetFLoadingText(Value: string);
-    procedure SetFMultiSelect(Value: Boolean);
-    procedure SetFOverClass(Value: string);
+    procedure SetMultiSelect(const AValue: Boolean);
+    procedure SetOverClass(const AValue: string);
     procedure SetFSelectedClass(Value: string);
     procedure SetFSimpleSelect(Value: Boolean);
-    procedure SetFSingleSelect(Value: Boolean);
+    procedure SetSingleSelect(const AValue: Boolean);
     procedure _SetStore(const AValue: TExtDataStore);
     procedure SetTpl(AValue: string);
     procedure SetFTplArray(Value: TExtObjectList);
@@ -3011,13 +3011,13 @@ type
     property BlockRefresh: Boolean read FBlockRefresh write SetFBlockRefresh;
     property DeferEmptyText: Boolean read FDeferEmptyText write SetFDeferEmptyText;
     property EmptyText: string read FEmptyText write SetEmptyText;
-    property ItemSelector: string read FItemSelector write SetFItemSelector;
+    property ItemSelector: string read FItemSelector write SetItemSelector;
     property LoadingText: string read FLoadingText write SetFLoadingText;
-    property MultiSelect: Boolean read FMultiSelect write SetFMultiSelect;
-    property OverClass: string read FOverClass write SetFOverClass;
+    property MultiSelect: Boolean read FMultiSelect write SetMultiSelect;
+    property OverClass: string read FOverClass write SetOverClass;
     property SelectedClass: string read FSelectedClass write SetFSelectedClass;
     property SimpleSelect: Boolean read FSimpleSelect write SetFSimpleSelect;
-    property SingleSelect: Boolean read FSingleSelect write SetFSingleSelect;
+    property SingleSelect: Boolean read FSingleSelect write SetSingleSelect;
     property Store: TExtDataStore read FStore write _SetStore;
     property StoreArray: TExtObjectList read FStoreArray write SetStoreArray;
     property Tpl: string read FTpl write SetTpl;
@@ -3732,7 +3732,7 @@ type
     CurrentTab: TExtPanel) of object;
   TExtTabPanelOnContextmenu = procedure(This: TExtTabPanel; TAB: TExtPanel;
     E: TExtEventObjectSingleton) of object;
-  TExtTabPanelOnTabchange = procedure(This: TExtTabPanel; TAB: TExtPanel) of object;
+  TExtTabPanelOnTabchange = procedure(This: TExtTabPanel; Tab: TExtPanel) of object;
 
   TExtTabPanel = class(TExtPanel)
   private
@@ -3761,7 +3761,7 @@ type
     FWheelIncrement: Integer; // 20
     FOnBeforetabchange: TExtTabPanelOnBeforetabchange;
     FOnContextmenu: TExtTabPanelOnContextmenu;
-    FOnTabchange: TExtTabPanelOnTabchange;
+    FOnTabChange: TExtTabPanelOnTabchange;
     procedure _SetActiveTab(const AValue: string);
     procedure SetActiveTabNumber(const AValue: Integer);
     procedure SetFAnimScroll(Value: Boolean);
@@ -3787,7 +3787,7 @@ type
     procedure SetFWheelIncrement(Value: Integer);
     procedure SetFOnBeforetabchange(Value: TExtTabPanelOnBeforetabchange);
     procedure SetFOnContextmenu(Value: TExtTabPanelOnContextmenu);
-    procedure SetFOnTabchange(Value: TExtTabPanelOnTabchange);
+    procedure SetOnTabChange(const AValue: TExtTabPanelOnTabchange);
   protected
     procedure InitDefaults; override;
     procedure HandleEvent(const AEvtName: string); override;
@@ -3844,7 +3844,7 @@ type
       write SetFOnBeforetabchange;
     property OnContextmenu: TExtTabPanelOnContextmenu read FOnContextmenu
       write SetFOnContextmenu;
-    property OnTabchange: TExtTabPanelOnTabchange read FOnTabchange write SetFOnTabchange;
+    property OnTabchange: TExtTabPanelOnTabchange read FOnTabChange write SetOnTabChange;
   end;
 
   // Procedural types for events TExtPagingToolbar
@@ -12221,10 +12221,10 @@ begin
   ExtSession.ResponseItems.SetConfigItem(Self, 'emptyText', [AValue]);
 end;
 
-procedure TExtDataView.SetFItemSelector(Value: string);
+procedure TExtDataView.SetItemSelector(const AValue: string);
 begin
-  FItemSelector := Value;
-  JSCode('itemSelector:' + VarToJSON([Value]));
+  FItemSelector := AValue;
+  Session.ResponseItems.SetConfigItem(Self, 'itemSelector', [AValue]);
 end;
 
 procedure TExtDataView.SetFLoadingText(Value: string);
@@ -12233,16 +12233,16 @@ begin
   JSCode('loadingText:' + VarToJSON([Value]));
 end;
 
-procedure TExtDataView.SetFMultiSelect(Value: Boolean);
+procedure TExtDataView.SetMultiSelect(const AValue: Boolean);
 begin
-  FMultiSelect := Value;
-  JSCode('multiSelect:' + VarToJSON([Value]));
+  FMultiSelect := AValue;
+  Session.ResponseItems.SetConfigItem(Self, 'multiSelect', [AValue]);
 end;
 
-procedure TExtDataView.SetFOverClass(Value: string);
+procedure TExtDataView.SetOverClass(const AValue: string);
 begin
-  FOverClass := Value;
-  JSCode('overClass:' + VarToJSON([Value]));
+  FOverClass := AValue;
+  ExtSession.ResponseItems.SetConfigItem(Self, 'overClass', [AValue]);
 end;
 
 procedure TExtDataView.SetFSelectedClass(Value: string);
@@ -12257,10 +12257,10 @@ begin
   JSCode('simpleSelect:' + VarToJSON([Value]));
 end;
 
-procedure TExtDataView.SetFSingleSelect(Value: Boolean);
+procedure TExtDataView.SetSingleSelect(const AValue: Boolean);
 begin
-  FSingleSelect := Value;
-  JSCode('singleSelect:' + VarToJSON([Value]));
+  FSingleSelect := AValue;
+  Session.ResponseItems.SetConfigItem(Self, 'singleSelect', [AValue]);
 end;
 
 procedure TExtDataView._SetStore(const AValue: TExtDataStore);
@@ -14483,13 +14483,13 @@ begin
   FOnContextmenu := Value;
 end;
 
-procedure TExtTabPanel.SetFOnTabchange(Value: TExtTabPanelOnTabchange);
+procedure TExtTabPanel.SetOnTabChange(const AValue: TExtTabPanelOnTabchange);
 begin
-  if Assigned(FOnTabchange) then
-    JSCode(JSName + '.events ["tabchange"].listeners=[];');
-  if Assigned(Value) then
-    on('tabchange', Ajax('tabchange', ['This', '%0.nm', 'Tab', '%1.nm'], true));
-  FOnTabchange := Value;
+  if Assigned(FOnTabChange) then
+    Session.ResponseItems.ExecuteJSCode(Self, JSName + '.events["tabchange"].listeners=[];');
+  if Assigned(AValue) then
+    On('tabchange', Ajax('tabchange', ['This', '%0.nm', 'Tab', '(%1?%1.nm:null)'], True));
+  FOnTabChange := AValue;
 end;
 
 class function TExtTabPanel.JSClassName: string;
@@ -14652,8 +14652,8 @@ begin
   else if (AEvtName = 'contextmenu') and Assigned(FOnContextmenu) then
     FOnContextmenu(TExtTabPanel(ParamAsObject('This')), TExtPanel(ParamAsObject('Tab')),
       ExtEventObject)
-  else if (AEvtName = 'tabchange') and Assigned(FOnTabchange) then
-    FOnTabchange(TExtTabPanel(ParamAsObject('This')), TExtPanel(ParamAsObject('Tab')));
+  else if (AEvtName = 'tabchange') and Assigned(FOnTabChange) then
+    FOnTabChange(TExtTabPanel(ParamAsObject('This')), TExtPanel(ParamAsObject('Tab')));
 end;
 
 procedure TExtPagingToolbar.SetFAfterPageText(Value: string);

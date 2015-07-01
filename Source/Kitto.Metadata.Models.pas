@@ -77,6 +77,7 @@ type
     function GetDisplayLabel: string;
     function GetIsVisible: Boolean;
     function GetDisplayWidth: Integer;
+    function GetIsComputed: Boolean;
     function GetIsReadOnly: Boolean;
     function GetIsKey: Boolean;
     function GetIsGenerated: Boolean;
@@ -248,6 +249,11 @@ type
     ///   Default read-only status of this field in views. Defaults to False.
     /// </summary>
     property IsReadOnly: Boolean read GetIsReadOnly;
+
+    /// <summary>
+    ///   A field computed on server side. At client side is not editable. Defaults to False.
+    /// </summary>
+    property IsComputed: Boolean read GetIsComputed;
 
     /// <summary>
     ///   Returns True if the field is auto-generated at the database level,
@@ -541,6 +547,8 @@ type
     property DetailReferenceCount: Integer read GetDetailReferenceCount;
     property DetailReferences[I: Integer]: TKModelDetailReference read GetDetailReference;
     function DetailReferenceByName(const AName: string): TKModelDetailReference;
+    function FindDefaultCaptionField: TKModelField;
+    function FindCaptionField: TKModelField;
     function FindDetailReference(const AName: string): TKModelDetailReference;
     function FindDetailReferenceByPhysicalName(const APhysicalName: string): TKModelDetailReference;
 
@@ -636,7 +644,10 @@ type
     /// </returns>
     function LoadRecords(const AStore: TEFTree; const AFilterExpression: string;
       const ASortExpression: string; const AStart: Integer = 0;
-      const ALimit: Integer = 0): Integer; virtual; abstract;
+      const ALimit: Integer = 0; const AForEachRecord: TProc<TEFNode> = nil): Integer; virtual; abstract;
+
+    procedure SaveRecords(const AStore: TEFTree; const APersist: Boolean;
+      const AAfterPersist: TProc); virtual; abstract;
 
     /// <summary>
     ///  Saves the specified record.
@@ -660,6 +671,7 @@ type
     /// </remarks>
     procedure SaveRecord(const ARecord: TEFNode; const APersist: Boolean;
       const AAfterPersist: TProc); virtual; abstract;
+
     /// <summary>
     ///  Called when a new record is being created in the GUI, after applying
     ///  any default or cloned values but before applying new record rules.
@@ -930,6 +942,19 @@ begin
   end;
 end;
 
+function TKModel.FindCaptionField: TKModelField;
+var
+  LFieldName: string;
+begin
+  Result := nil;
+  LFieldName := CaptionFieldName;
+  if LFieldName <> '' then
+    Result := FindField(LFieldName);
+  // Find first visible non-key field.
+  if Result = nil then
+    Result := FindDefaultCaptionField;
+end;
+
 function TKModel.FindReferenceField(const AModel: TKModel): TKModelField;
 var
   I: Integer;
@@ -1112,7 +1137,7 @@ begin
   Result := PersistentName;
 end;
 
-function TKModel.GetDefaultCaptionField: TKModelField;
+function TKModel.FindDefaultCaptionField: TKModelField;
 var
   I: Integer;
   LFirstVisibleField: TKModelField;
@@ -1139,18 +1164,14 @@ begin
     Result := Fields[0];
 end;
 
-function TKModel.GetCaptionField: TKModelField;
-var
-  LFieldName: string;
+function TKModel.GetDefaultCaptionField: TKModelField;
 begin
-  Result := nil;
-  LFieldName := CaptionFieldName;
-  if LFieldName <> '' then
-    Result := FindField(LFieldName);
-  // Find first visible non-key field.
-  if Result = nil then
-    Result := GetDefaultCaptionField;
+  Result := FindDefaultCaptionField;
+end;
 
+function TKModel.GetCaptionField: TKModelField;
+begin
+  Result := FindCaptionField;
   Assert(Result <> nil);
 end;
 
@@ -1361,6 +1382,11 @@ begin
     GetFieldSpec(LDataType, LSize, LDecimalPrecision, LIsRequired, Result, LReferencedModel);
 end;
 
+function TKModelField.GetIsComputed: Boolean;
+begin
+  Result := GetBoolean('IsComputed');
+end;
+
 function TKModelField.GetIsReadOnly: Boolean;
 begin
   Result := GetBoolean('IsReadOnly', False);
@@ -1471,6 +1497,8 @@ begin
   // Avoid storing the Fields node if it's empty.
   if GetFields.FieldCount = 0 then
     DeleteNode('Fields');
+  if Length(AllowedValues) = 0 then
+    DeleteNode('AllowedValues');
 end;
 
 function TKModelField.FieldByName(const AName: string): TKModelField;
@@ -1536,7 +1564,7 @@ end;
 
 function TKModelField.CanActuallyModify: Boolean;
 begin
-  Result := Expression = '';
+  Result := (Expression = '') and not IsComputed;
 end;
 
 function TKModelField.GetCanUpdate: Boolean;

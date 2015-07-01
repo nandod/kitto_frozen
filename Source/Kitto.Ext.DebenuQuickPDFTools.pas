@@ -95,16 +95,14 @@ type
       const FullFileName: string = '');
     function LoadLayout(const ALayoutFileName: string): TEFPersistentTree;
     property PDFDoc: TPDFLibrary read GetPDFDoc;
-  strict
-  private
     function GetLayoutFileName: string;
-  private
-    function GetBaseFileName: string; protected
+    function GetBaseFileName: string;
+  strict protected
     function GetDefaultFileName: string; override;
     procedure PrepareFile(const AFileName: string); override;
     function GetDefaultFileExtension: string; override;
   public
-    class function GetDefaultImageName: string;
+    class function GetDefaultImageName: string; override;
   published
     property LayoutFileName: string read GetLayoutFileName;
     property BaseFileName: string read GetBaseFileName;
@@ -396,7 +394,7 @@ begin
         LWidth := LNode.GetInteger('Width');
         LHeight := LNode.GetInteger('Height');
         //Add an image
-        LImageFileName := TKConfig.FindResourcePathName(LImageFileName);
+        LImageFileName := Session.Config.FindResourcePathName(LImageFileName);
         AddImage(LImageFileName,LLeft,LTop,LWidth,LHeight);
       end
       else if SameText(LNode.Name,'Text') then

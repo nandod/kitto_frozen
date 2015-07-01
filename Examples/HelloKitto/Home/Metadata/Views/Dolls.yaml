@@ -14,19 +14,9 @@ Controller: List
 
 MainTable:
   Model: Doll
-  Fields:
-    Doll_Id:
-    Doll_Name:
-    Date_Bought:
-    Hair:
-    Dress_Size:
-    Mom:
-    Mom.Phone: Mom_Phone
-      DisplayLabel: _(Mom's Phone)
-    Aspect:
-    Picture:
 
   Controller:
+    PageRecordCount: 2
     AllowViewing: True
     PopupWindow:
       Height: 500

@@ -26,6 +26,12 @@ uses
   EF.Intf, EF.Tree, EF.ObserverIntf, EF.Classes,
   Kitto.Ext.Controller, Kitto.Metadata.Views;
 
+const
+  DEFAULT_WINDOW_WIDTH = 600;
+  DEFAULT_WINDOW_HEIGHT = 400;
+  DEFAULT_WINDOW_TOOL_WIDTH = 400;
+  DEFAULT_WINDOW_TOOL_HEIGHT = 200;
+
 type
   TKExtContainerHelper = class helper for TExtContainer
   public
@@ -146,7 +152,7 @@ type
   /// <summary>
   ///   Base Ext panel with subject and observer capabilities.
   /// </summary>
-  TKExtPanelBase = class(TExtPanel, IInterface, IEFInterface, IEFSubject, IEFObserver)
+  TKExtPanelBase = class(TExtPanel, IInterface, IEFInterface, IEFSubject, IEFObserver, IKExtActivable)
   private
     FSubjObserverImpl: TEFSubjectAndObserver;
     FConfig: TEFNode;
@@ -168,6 +174,7 @@ type
     procedure DetachObserver(const AObserver: IEFObserver); virtual;
     procedure NotifyObservers(const AContext: string = ''); virtual;
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); virtual;
+    procedure Activate; virtual;
 
     property Config: TEFNode read GetConfig;
   end;
@@ -311,10 +318,13 @@ type
     procedure AfterExecuteTool; virtual;
     procedure DoDisplay; override;
   public
+    class function GetDefaultImageName: string; virtual;
     class function SupportsContainer: Boolean;
     function IsSynchronous: Boolean; override;
     property DisplayLabel: string read GetDisplayLabel;
   end;
+
+  TExtToolControllerClass = class of TKExtToolController;
 
   /// <summary>
   ///  Base class for tool controllers that display a (modal) window with
@@ -564,6 +574,10 @@ end;
 
 { TKExtPanelBase }
 
+procedure TKExtPanelBase.Activate;
+begin
+end;
+
 function TKExtPanelBase.AsObject: TObject;
 begin
   Result := Self;
@@ -768,8 +782,8 @@ end;
 procedure TKExtModalWindow.InitDefaults;
 begin
   inherited;
-  Width := 600;
-  Height := 400;
+  Width := DEFAULT_WINDOW_WIDTH;
+  Height := DEFAULT_WINDOW_HEIGHT;
   Closable := False;
   Modal := True;
 end;
@@ -974,6 +988,8 @@ begin
 
   // A Tool may or may not have a confirmation message.
   LConfirmationMessage := AView.GetExpandedString('Controller/ConfirmationMessage');
+  // Cleanup Linebreaks with <br> tag
+  LConfirmationMessage := StringReplace(LConfirmationMessage, sLineBreak, '<br>',[rfReplaceAll]);
   LConfirmationJS := GetConfirmCall(LConfirmationMessage, Result.ExecuteButtonAction);
   if LConfirmationMessage <> '' then
     Result.On('click', JSFunction(LConfirmationJS))
@@ -1364,6 +1380,11 @@ begin
   Result := False;
 end;
 
+class function TKExtToolController.GetDefaultImageName: string;
+begin
+  Result := 'tool_exec';
+end;
+
 procedure TKExtToolController.AfterExecuteTool;
 begin
 end;
@@ -1533,8 +1554,8 @@ end;
 
 procedure TKExtWindowToolController.SetWindowSize;
 begin
-  Width := 400;
-  Height := 200;
+  Width := DEFAULT_WINDOW_TOOL_WIDTH;
+  Height := DEFAULT_WINDOW_TOOL_HEIGHT;
   Resizable := False;
 end;
 

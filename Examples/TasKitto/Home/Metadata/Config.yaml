@@ -1,14 +1,5 @@
 ﻿AppTitle: Tasks & Activities
 
-LoginWindowAppearance:
-  HtmlPanel: |
-    <center>
-      <p><img src="%IMAGE(taskitto_logo_150)%"></img></p>
-      <p>An example activity tracking application.</p>
-    </center>
-  HtmlPanelWidth: 300
-  HtmlPanelHeight: 80
-
 Databases:
   Main: DBX
     Connection:
@@ -23,12 +14,14 @@ Databases:
 
 Auth: DB
   IsClearPassword: True
-  Defaults:
+  .Defaults:
     UserName: admin
     Password: admin
   ReadUserCommandText: select USER_NAME, PASSWORD_HASH, FIRST_NAME, LAST_NAME from KITTO_USERS where IS_ACTIVE = 1 and UPPER(USER_NAME) = UPPER(:USER_NAME)
 
 AccessControl: Null
+
+Login: LoginView
 
 # Change this to use a custom view for the home page.
 # Alternatively, customize the Home view by replacing its controller.

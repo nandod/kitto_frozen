@@ -25,7 +25,7 @@ uses
   Windows, Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, ComCtrls, ToolWin, Kitto.Ext.Application,
   ActnList, Kitto.Config, StdCtrls, Buttons, ExtCtrls, ImgList, EF.Logger,
-  Actions;
+  Actions, Vcl.Tabs, Vcl.Grids;
 
 type
   TKExtLogEvent = procedure (const AString: string) of object;
@@ -59,6 +59,11 @@ type
     SpeedButton1: TSpeedButton;
     HomeURLLabel: TLabel;
     AppIcon: TImage;
+    MainTabSet: TTabSet;
+    SessionPanel: TPanel;
+    SessionToolPanel: TPanel;
+    Button1: TButton;
+    SessionListView: TListView;
     procedure StartActionUpdate(Sender: TObject);
     procedure StopActionUpdate(Sender: TObject);
     procedure StartActionExecute(Sender: TObject);
@@ -73,13 +78,22 @@ type
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure HomeURLLabelClick(Sender: TObject);
+    procedure MainTabSetChange(Sender: TObject; NewTab: Integer;
+      var AllowChange: Boolean);
+    procedure Button1Click(Sender: TObject);
+    procedure SessionListViewEdited(Sender: TObject; Item: TListItem;
+      var S: string);
+    procedure SessionListViewInfoTip(Sender: TObject; Item: TListItem;
+      var InfoTip: string);
   private
     FAppThread: TKExtAppThread;
     FRestart: Boolean;
     FLogEndPoint: TKExtMainFormLogEndpoint;
-    {$IFDEF D20+}
-    FTaskbar: TComponent;
-    {$ENDIF}
+    procedure ShowTabGUI(const AIndex: Integer);
+    procedure UpdateSessionInfo;
+    const
+      TAB_LOG = 0;
+      TAB_SESSIONS = 1;
     function IsStarted: Boolean;
     function GetAppThread: TKExtAppThread;
     procedure AppThreadTerminated(Sender: TObject);
@@ -89,9 +103,6 @@ type
     procedure SetConfig(const AFileName: string);
     procedure SelectConfigFile;
     procedure DisplayHomeURL(const AHomeURL: string);
-    {$IFDEF D20+}
-    procedure SetupTaskbar;
-    {$ENDIF}
     property AppThread: TKExtAppThread read GetAppThread;
     function HasConfigFileName: Boolean;
     procedure DoLog(const AString: string);
@@ -105,15 +116,21 @@ implementation
 {$R *.dfm}
 
 uses
-  Math, {$IFDEF D20+}System.Win.TaskbarCore, Vcl.Taskbar,{$ENDIF}
+  Math, SyncObjs,
   EF.SysUtils, EF.Shell, EF.Localization,
-  FCGIApp;
+  FCGIApp,
+  Kitto.Ext.Session;
 
 procedure TKExtMainForm.AppThreadTerminated(Sender: TObject);
 begin
   FAppThread := nil;
   DoLog(_('Listener stopped'));
   SessionCountLabel.Visible := False;
+end;
+
+procedure TKExtMainForm.Button1Click(Sender: TObject);
+begin
+  UpdateSessionInfo;
 end;
 
 procedure TKExtMainForm.ConfigLinkLabelClick(Sender: TObject);
@@ -131,6 +148,24 @@ begin
     Caption := TKConfig.AppHomePath;
     FillConfigFileNameCombo;
     SetConfig(ExtractFileName(OpenConfigDialog.FileName));
+  end;
+end;
+
+procedure TKExtMainForm.SessionListViewEdited(Sender: TObject; Item: TListItem;
+  var S: string);
+begin
+  if TObject(Item.Data) is TKExtSession then
+    TKExtSession(Item.Data).DisplayName := S;
+end;
+
+procedure TKExtMainForm.SessionListViewInfoTip(Sender: TObject; Item: TListItem;
+  var InfoTip: string);
+begin
+  if Assigned(Item) and  (TObject(Item.Data) is TKExtSession) then
+  begin
+    InfoTip :=
+      'HTTP_USER_AGENT: ' + TKExtSession(Item.Data).RequestHeader['HTTP_USER_AGENT'] + sLineBreak +
+      'SERVER_SOFTWARE: ' + TKExtSession(Item.Data).RequestHeader['SERVER_SOFTWARE'];
   end;
 end;
 
@@ -154,11 +189,32 @@ begin
       StartAction.Execute;
     end;
   end;
+  UpdateSessionInfo;
 end;
 
 procedure TKExtMainForm.StopActionUpdate(Sender: TObject);
 begin
   (Sender as TAction).Enabled := IsStarted;
+end;
+
+procedure TKExtMainForm.MainTabSetChange(Sender: TObject; NewTab: Integer;
+  var AllowChange: Boolean);
+begin
+  ShowTabGUI(NewTab);
+end;
+
+procedure TKExtMainForm.ShowTabGUI(const AIndex: Integer);
+begin
+  case AIndex of
+    TAB_LOG:
+      LogMemo.BringToFront;
+
+    TAB_SESSIONS:
+    begin
+      UpdateSessionInfo;
+      SessionPanel.BringToFront;
+    end;
+  end;
 end;
 
 procedure TKExtMainForm.RestartActionExecute(Sender: TObject);
@@ -181,6 +237,67 @@ end;
 procedure TKExtMainForm.UpdateSessionCountlabel;
 begin
   SessionCountLabel.Caption := Format('Active Sessions: %d', [GetSessionCount]);
+end;
+
+procedure TKExtMainForm.UpdateSessionInfo;
+
+  procedure AddItem(const AThreadData: TFCGIThreadData);
+  var
+    LItem: TListItem;
+    LSession: TKExtSession;
+  begin
+    LItem := SessionListView.Items.Add;
+    if Assigned(AThreadData.Session) and (AThreadData.Session is TKExtSession) then
+    begin
+      LSession := TKExtSession(AThreadData.Session);
+      LItem.Data := LSession;
+      LItem.Caption := LSession.DisplayName;
+      // Start Time.
+      LItem.SubItems.Add(DateTimeToStr(LSession.CreationDateTime));
+      // Last Req.
+      LItem.SubItems.Add(DateTimeToStr(LSession.LastRequestDateTime));
+      // User.
+      LItem.SubItems.Add(LSession.GetLoggedInUserName);
+      // Origin.
+      LItem.SubItems.Add(LSession.GetOrigin);
+    end
+    else
+    begin
+      LItem.Caption := _('None');
+    end;
+  end;
+
+var
+  I: Integer;
+  LThreadData: TFCGIThreadData;
+begin
+  SessionListView.Clear;
+  if Assigned(FCGIApp.Application) then
+  begin
+    FCGIApp.Application.AccessThreads.Enter;
+    try
+      if FCGIApp.Application.ThreadsCount <= 0 then
+      begin
+        LThreadData.Session := nil;
+        AddItem(LThreadData);
+      end
+      else
+      begin
+        for I := 0 to FCGIApp.Application.ThreadsCount - 1 do
+        begin
+          LThreadData := FCGIApp.Application.GetThreadData(I);
+          AddItem(LThreadData);
+        end;
+      end;
+    finally
+      FCGIApp.Application.AccessThreads.Leave;
+    end;
+  end
+  else
+  begin
+    LThreadData.Session := nil;
+    AddItem(LThreadData);
+  end;
 end;
 
 function TKExtMainForm.GetSessionCount: Integer;
@@ -225,6 +342,7 @@ end;
 
 procedure TKExtMainForm.FormShow(Sender: TObject);
 begin
+  ShowTabGUI(TAB_LOG);
   Caption := TKConfig.AppHomePath;
   DoLog(Format(_('Build date: %s'), [DateTimeToStr(GetFileDateTime(ParamStr(0)))]));
   FillConfigFileNameCombo;
@@ -264,38 +382,7 @@ begin
   StartAction.Update;
   if LWasStarted then
     StartAction.Execute;
-  {$IFDEF D20+}
-  SetupTaskbar;
-  {$ENDIF}
 end;
-
-{$IFDEF D20+}
-procedure TKExtMainForm.SetupTaskbar;
-var
-  LTaskbar: TTaskbar;
-
-  procedure AddButton(const AAction: TAction);
-  var
-    LButton: TThumbBarButton;
-  begin
-    LButton := LTaskbar.TaskBarButtons.Add;
-    LButton.Action := AAction;
-  end;
-
-begin
-  FreeAndNil(FTaskbar);
-  FTaskbar := TTaskbar.Create(Self);
-  LTaskbar := TTaskbar(FTaskbar);
-  // Needed to avoid AVs when LTaskbar.TaskBarButtons.Add is called.
-  // the component does not really support being configured at run time.
-  LTaskbar.TaskBarButtons.OnChange := nil;
-  AddButton(StartAction);
-  AddButton(StopAction);
-  AddButton(RestartAction);
-  // Apply the changes to the windows taskbar.
-  LTaskbar.Initialize;
-end;
-{$ENDIF}
 
 procedure TKExtMainForm.DisplayHomeURL(const AHomeURL: string);
 begin

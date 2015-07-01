@@ -2,7 +2,7 @@
 ; This file is maintained by Doc-O-Matic, do not edit manually.
 
 [AutoTexts]
-Empty=0
+Empty=1
 Saved=1
 Text0=This is unknown %SYMBOLNAME%.
 Text1=This is class %SYMBOLNAME%.
@@ -30,15 +30,15 @@ Name3=Help 3
 
 [Configurations\Help 2\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\AdditionalFiles]
 Count=4
-File0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
-File1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
-File2=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
-File3=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
+File0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
+File1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
+File2=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
+File3=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
 
 [Configurations\Help 2\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\General]
 ClearDirectoryBeforeExport=0
 HelpKind=2
-OutputDir=..\..\..\..\..\..\Documents\Doc-O-Matic\output
+OutputDir=..\..\..\..\Documents\Doc-O-Matic\output
 OutputXHTML=1
 TargetBOM=1
 TargetCodepage=utf-8
@@ -87,26 +87,26 @@ WindowPosition_Top=0
 
 [Configurations\Help 2\Image Paths]
 Count=2
-Path0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
-Path1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
+Path0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
+Path1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
 
 [Configurations\Help 2\Output Options]
-ClassHierarchyLayoutOutputDir=..\..\Docs\External\Reference\graphics
+ClassHierarchyLayoutOutputDir=..\..\..\EtheaNewSite\trunk\home\docs\kitto\en\ref
 
 [Configurations\Help 2\OutputFormat]
 ID={D3A588E0-9472-11D3-BDD1-0080C8BA053D}
 
 [Configurations\Help 3\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\AdditionalFiles]
 Count=4
-File0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
-File1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
-File2=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
-File3=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
+File0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
+File1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
+File2=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
+File3=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
 
 [Configurations\Help 3\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\General]
 ClearDirectoryBeforeExport=0
 HelpKind=3
-OutputDir=..\..\..\..\..\..\Documents\Doc-O-Matic\output
+OutputDir=..\..\..\..\Documents\Doc-O-Matic\output
 OutputXHTML=1
 TargetBOM=1
 TargetCodepage=utf-8
@@ -155,26 +155,26 @@ WindowPosition_Top=0
 
 [Configurations\Help 3\Image Paths]
 Count=2
-Path0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
-Path1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
+Path0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
+Path1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
 
 [Configurations\Help 3\Output Options]
-ClassHierarchyLayoutOutputDir=..\..\Docs\External\Reference\graphics
+ClassHierarchyLayoutOutputDir=..\..\..\EtheaNewSite\trunk\home\docs\kitto\en\ref
 
 [Configurations\Help 3\OutputFormat]
 ID={D3A588E0-9472-11D3-BDD1-0080C8BA053D}
 
 [Configurations\HTML Help\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\AdditionalFiles]
 Count=4
-File0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
-File1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
-File2=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
-File3=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
+File0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
+File1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
+File2=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
+File3=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
 
 [Configurations\HTML Help\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\General]
 ClearDirectoryBeforeExport=0
 HelpKind=1
-OutputDir=..\..\..\..\..\..\Documents\Doc-O-Matic\output
+OutputDir=..\..\..\..\Documents\Doc-O-Matic\output
 OutputXHTML=1
 TargetBOM=0
 TargetCodepage=windows-1252
@@ -223,26 +223,26 @@ WindowPosition_Top=0
 
 [Configurations\HTML Help\Image Paths]
 Count=2
-Path0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
-Path1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
+Path0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
+Path1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
 
 [Configurations\HTML Help\Output Options]
-ClassHierarchyLayoutOutputDir=..\..\Docs\External\Reference\graphics
+ClassHierarchyLayoutOutputDir=..\..\..\EtheaNewSite\trunk\home\docs\kitto\en\ref
 
 [Configurations\HTML Help\OutputFormat]
 ID={D3A588E0-9472-11D3-BDD1-0080C8BA053D}
 
 [Configurations\HTML\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\AdditionalFiles]
 Count=4
-File0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
-File1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
-File2=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
-File3=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
+File0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\footer-bkg-whitegradient.gif
+File1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\header-bkg-whitegradient.gif
+File2=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_fullframegradient.gif
+File3=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\html_titlebkg.jpg
 
 [Configurations\HTML\{D3A588E0-9472-11D3-BDD1-0080C8BA053D}\General]
 ClearDirectoryBeforeExport=1
 HelpKind=0
-OutputDir=..\..\Docs\External\Reference\Html
+OutputDir=..\..\..\EtheaNewSite\trunk\home\docs\kitto\en\ref
 OutputXHTML=1
 TargetBOM=0
 TargetCodepage=utf-8
@@ -291,24 +291,24 @@ WindowPosition_Top=0
 
 [Configurations\HTML\Image Paths]
 Count=2
-Path0=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
-Path1=..\..\..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
+Path0=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics
+Path1=..\..\..\..\Program Files (x86)\Doc-O-Matic 7 Express\graphics\en
 
 [Configurations\HTML\Output Options]
-ClassHierarchyLayoutOutputDir=..\..\Docs\External\Reference\graphics
+ClassHierarchyLayoutOutputDir=..\..\..\EtheaNewSite\trunk\home\docs\kitto\en\ref
 
 [Configurations\HTML\OutputFormat]
 ID={D3A588E0-9472-11D3-BDD1-0080C8BA053D}
 
 [General]
-Author=Nando Dessena
-AuthorEmail=nando.dessena@ethea.it
-Copyright=Copyright (c) 2011 Ethea. All rights reserved.
+Author=Nando Dessena - Carlo Barazzetta
+AuthorEmail=info@ethea.it
+Copyright=Copyright (c) 2011-2015 Ethea. Apache License 2.0
 Summary=A framework for creating data-driven web applications in Delphi
 Title=KittoReference
 VersionBuild=0
-VersionMajor=1
-VersionMinor=0
+VersionMajor=2
+VersionMinor=1
 VersionRelease=0
 
 [Macro Header Files]
@@ -935,85 +935,91 @@ ID9=9
 SavedValues=1
 
 [Source Files]
-Count=79
+Count=85
 File0=..\..\Source\EF\EF.Classes.pas
 File1=..\..\Source\EF\EF.DB.ADO.pas
-File10=..\..\Source\EF\EF.Logger.CodeSite.pas
-File11=..\..\Source\EF\EF.Logger.pas
-File12=..\..\Source\EF\EF.Logger.TextFile.pas
-File13=..\..\Source\EF\EF.Macros.pas
-File14=..\..\Source\EF\EF.ObserverIntf.pas
-File15=..\..\Source\EF\EF.RegEx.pas
-File16=..\..\Source\EF\EF.Rtti.pas
-File17=..\..\Source\EF\EF.Shell.pas
-File18=..\..\Source\EF\EF.SQL.pas
-File19=..\..\Source\EF\EF.Streams.pas
+File10=..\..\Source\EF\EF.Macros.pas
+File11=..\..\Source\EF\EF.SQL.pas
+File12=..\..\Source\EF\EF.Streams.pas
+File13=..\..\Source\EF\EF.StrUtils.pas
+File14=..\..\Source\EF\EF.SysUtils.pas
+File15=..\..\Source\EF\EF.Tree.pas
+File16=..\..\Source\EF\EF.Types.pas
+File17=..\..\Source\EF\EF.VariantUtils.pas
+File18=..\..\Source\EF\EF.XML.pas
+File19=..\..\Source\EF\EF.YAML.pas
 File2=..\..\Source\EF\EF.DB.DBX.pas
-File20=..\..\Source\EF\EF.StrUtils.pas
-File21=..\..\Source\EF\EF.SysUtils.pas
-File22=..\..\Source\EF\EF.Tree.pas
-File23=..\..\Source\EF\EF.Types.pas
-File24=..\..\Source\EF\EF.VariantUtils.pas
-File25=..\..\Source\EF\EF.YAML.pas
-File26=..\..\Source\Kitto.AccessControl.DB.pas
-File27=..\..\Source\Kitto.AccessControl.pas
-File28=..\..\Source\Kitto.Auth.DB.pas
-File29=..\..\Source\Kitto.Auth.DBServer.pas
-File3=..\..\Source\EF\EF.DB.pas
-File30=..\..\Source\Kitto.Auth.OSDB.pas
-File31=..\..\Source\Kitto.Auth.pas
-File32=..\..\Source\Kitto.Auth.TextFile.pas
-File33=..\..\Source\Kitto.Config.pas
-File34=..\..\Source\Kitto.DatabaseRouter.pas
-File35=..\..\Source\Kitto.Defines.inc
-File36=..\..\Source\Kitto.Ext.AccordionPanel.pas
-File37=..\..\Source\Kitto.Ext.All.pas
-File38=..\..\Source\Kitto.Ext.Application.pas
-File39=..\..\Source\Kitto.Ext.Base.pas
-File4=..\..\Source\EF\EF.Defines.inc
-File40=..\..\Source\Kitto.Ext.BorderPanel.pas
-File41=..\..\Source\Kitto.Ext.ChangePassword.pas
-File42=..\..\Source\Kitto.Ext.ChartPanel.pas
-File43=..\..\Source\Kitto.Ext.Controller.pas
-File44=..\..\Source\Kitto.Ext.DataPanel.pas
-File45=..\..\Source\Kitto.Ext.DataPanelComposite.pas
-File46=..\..\Source\Kitto.Ext.DataPanelLeaf.pas
-File47=..\..\Source\Kitto.Ext.DataTool.pas
-File48=..\..\Source\Kitto.Ext.Editors.pas
-File49=..\..\Source\Kitto.Ext.Filters.pas
-File5=..\..\Source\EF\EF.Emailer.pas
-File50=..\..\Source\Kitto.Ext.Form.pas
-File51=..\..\Source\Kitto.Ext.GridPanel.pas
-File52=..\..\Source\Kitto.Ext.HtmlPanel.pas
-File53=..\..\Source\Kitto.Ext.List.pas
-File54=..\..\Source\Kitto.Ext.Login.pas
-File55=..\..\Source\Kitto.Ext.MainFormUnit.pas
-File56=..\..\Source\Kitto.Ext.Rules.pas
-File57=..\..\Source\Kitto.Ext.Service.pas
-File58=..\..\Source\Kitto.Ext.Session.pas
-File59=..\..\Source\Kitto.Ext.StandardControllers.pas
-File6=..\..\Source\EF\EF.Intf.pas
-File60=..\..\Source\Kitto.Ext.Start.pas
-File61=..\..\Source\Kitto.Ext.StatusBar.pas
-File62=..\..\Source\Kitto.Ext.TabPanel.pas
-File63=..\..\Source\Kitto.Ext.ToolBar.pas
-File64=..\..\Source\Kitto.Ext.TreePanel.pas
-File65=..\..\Source\Kitto.Ext.Utils.pas
-File66=..\..\Source\Kitto.Ext.Viewport.pas
-File67=..\..\Source\Kitto.Ext.Window.pas
-File68=..\..\Source\Kitto.JSON.pas
-File69=..\..\Source\Kitto.Localization.dxgettext.pas
+File20=..\..\Source\Kitto.AccessControl.DB.pas
+File21=..\..\Source\Kitto.AccessControl.pas
+File22=..\..\Source\Kitto.Auth.DB.pas
+File23=..\..\Source\Kitto.Auth.DBServer.pas
+File24=..\..\Source\Kitto.Auth.OSDB.pas
+File25=..\..\Source\Kitto.Auth.pas
+File26=..\..\Source\Kitto.Auth.TextFile.pas
+File27=..\..\Source\Kitto.Config.pas
+File28=..\..\Source\Kitto.DatabaseRouter.pas
+File29=..\..\Source\Kitto.Defines.inc
+File3=..\..\Source\EF\EF.DB.FD.pas
+File30=..\..\Source\Kitto.Excel.pas
+File31=..\..\Source\Kitto.Ext.AccordionPanel.pas
+File32=..\..\Source\Kitto.Ext.ADOTools.pas
+File33=..\..\Source\Kitto.Ext.All.pas
+File34=..\..\Source\Kitto.Ext.Application.pas
+File35=..\..\Source\Kitto.Ext.Base.pas
+File36=..\..\Source\Kitto.Ext.BorderPanel.pas
+File37=..\..\Source\Kitto.Ext.ChangePassword.pas
+File38=..\..\Source\Kitto.Ext.ChartPanel.pas
+File39=..\..\Source\Kitto.Ext.Controller.pas
+File4=..\..\Source\EF\EF.DB.pas
+File40=..\..\Source\Kitto.Ext.DataPanel.pas
+File41=..\..\Source\Kitto.Ext.DataPanelComposite.pas
+File42=..\..\Source\Kitto.Ext.DataPanelLeaf.pas
+File43=..\..\Source\Kitto.Ext.DataTool.pas
+File44=..\..\Source\Kitto.Ext.DebenuQuickPDFTools.pas
+File45=..\..\Source\Kitto.Ext.Editors.pas
+File46=..\..\Source\Kitto.Ext.FOPTools.pas
+File47=..\..\Source\Kitto.Ext.Form.pas
+File48=..\..\Source\Kitto.Ext.GridPanel.pas
+File49=..\..\Source\Kitto.Ext.HtmlPanel.pas
+File5=..\..\Source\EF\EF.Defines.inc
+File50=..\..\Source\Kitto.Ext.IndyTools.pas
+File51=..\..\Source\Kitto.Ext.List.pas
+File52=..\..\Source\Kitto.Ext.Login.pas
+File53=..\..\Source\Kitto.Ext.MainFormUnit.pas
+File54=..\..\Source\Kitto.Ext.Rules.pas
+File55=..\..\Source\Kitto.Ext.Service.pas
+File56=..\..\Source\Kitto.Ext.Session.pas
+File57=..\..\Source\Kitto.Ext.SQLTool.pas
+File58=..\..\Source\Kitto.Ext.StandardControllers.pas
+File59=..\..\Source\Kitto.Ext.Start.pas
+File6=..\..\Source\EF\EF.Emailer.pas
+File60=..\..\Source\Kitto.Ext.StatusBar.pas
+File61=..\..\Source\Kitto.Ext.TabPanel.pas
+File62=..\..\Source\Kitto.Ext.TemplateDataPanel.pas
+File63=..\..\Source\Kitto.Ext.TilePanel.pas
+File64=..\..\Source\Kitto.Ext.ToolBar.pas
+File65=..\..\Source\Kitto.Ext.Tools.pas
+File66=..\..\Source\Kitto.Ext.TreePanel.pas
+File67=..\..\Source\Kitto.Ext.Utils.pas
+File68=..\..\Source\Kitto.Ext.Viewport.pas
+File69=..\..\Source\Kitto.Ext.Window.pas
 File7=..\..\Source\EF\EF.JSON.pas
-File70=..\..\Source\Kitto.Metadata.DataView.pas
-File71=..\..\Source\Kitto.Metadata.Models.pas
-File72=..\..\Source\Kitto.Metadata.pas
-File73=..\..\Source\Kitto.Metadata.ViewBuilders.pas
-File74=..\..\Source\Kitto.Metadata.Views.pas
-File75=..\..\Source\Kitto.Rules.pas
-File76=..\..\Source\Kitto.SQL.pas
-File77=..\..\Source\Kitto.Store.pas
-File78=..\..\Source\Kitto.Types.pas
+File70=..\..\Source\Kitto.Ext.XSLTools.pas
+File71=..\..\Source\Kitto.JSON.pas
+File72=..\..\Source\Kitto.Localization.dxgettext.pas
+File73=..\..\Source\Kitto.LocalStorage.pas
+File74=..\..\Source\Kitto.Metadata.DataView.pas
+File75=..\..\Source\Kitto.Metadata.ModelImplementation.pas
+File76=..\..\Source\Kitto.Metadata.Models.pas
+File77=..\..\Source\Kitto.Metadata.pas
+File78=..\..\Source\Kitto.Metadata.ViewBuilders.pas
+File79=..\..\Source\Kitto.Metadata.Views.pas
 File8=..\..\Source\EF\EF.Localization.dxgettext.pas
+File80=..\..\Source\Kitto.Rules.pas
+File81=..\..\Source\Kitto.SQL.pas
+File82=..\..\Source\Kitto.Store.pas
+File83=..\..\Source\Kitto.Types.pas
+File84=..\..\Source\Kitto.Utils.pas
 File9=..\..\Source\EF\EF.Localization.pas
 
 [Source Include Directories]

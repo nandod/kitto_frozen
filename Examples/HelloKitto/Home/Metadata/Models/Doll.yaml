@@ -26,6 +26,9 @@ Fields:
   Mom: Reference(Girl) not null
     Fields:
       Mom_Id:
+    AutoAddFields:
+      Phone: Mom_Phone
+        DisplayLabel: _(Mom's Phone)
   Aspect: Memo
     DisplayWidth: 40
     Rules:
@@ -39,3 +42,4 @@ Fields:
       Thumbnail:
         Width: 150
         Height: 150
+DefaultSorting: {Q}Doll_Name

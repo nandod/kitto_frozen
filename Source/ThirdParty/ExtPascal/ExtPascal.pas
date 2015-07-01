@@ -299,6 +299,9 @@ type
     procedure HandleEvent(const AEvtName : string); virtual;
     property ExtSession: TExtSession read GetExtSession;
     procedure Notification(AComponent: TComponent; Operation: TOperation); override;
+    procedure SetConfigItem(const AName, AMethodName: string; const AValue: array of const); overload;
+    procedure SetConfigItem(const AName, AValue: string); overload;
+    procedure SetConfigItem(const AName: string; const AValue: TExtFunction); overload;
   public
     IsChild : boolean;
     constructor CreateInternal(const AOwner: TExtObject; const AAttribute: string); virtual;
@@ -421,6 +424,8 @@ type
     FResponseItemsStack: TStack<TExtResponseItems>;
     Sequence: Cardinal;
     FSingletons: TDictionary<string, TExtObject>;
+    FMobileBrowserDetectionDone: Boolean;
+    FIsMobileApple: Boolean;
     procedure RelocateVar(JS, JSName : string; I : integer);
     function GetStyleTag: string;
     function GetSequence: string;
@@ -465,6 +470,7 @@ type
       const AConsolidate: Boolean = True);
 
     function GetSingleton<T: TExtObject>(const AName: string): T;
+    function IsMobileApple: Boolean;
   published
     procedure HandleEvent; virtual;
   end;
@@ -705,6 +711,7 @@ begin
       FResponseItemsStack.Peek.ExecuteJSCode(LSender, LBranch.Consume);
     end;
   end;
+  FreeAndNil(LBranch);
 
   Assert(FResponseItemsStack.Count = LInitialCount - 1);
 end;
@@ -911,12 +918,11 @@ procedure TExtObject.JSSleep(MiliSeconds : integer); begin
   JSCode('sleep(' + IntToStr(MiliSeconds) + ');')
 end;
 
-function TExtObject.MethodURI(Method : TExtProcedure; Params : array of const) : string; begin
+function TExtObject.MethodURI(Method : TExtProcedure; Params : array of const) : string;
+begin
   Result := MethodURI(Method);
-  if length(Params) <> 0 then begin
-    if pos('?', Result) = 0 then Result := Result + '?';
-    Result := Result + FormatParams('TExtObject.MethodURI', Params)
-  end;
+  if Length(Params) <> 0 then
+    Result := Result + '&' + FormatParams('TExtObject.MethodURI', Params);
 end;
 
 function TExtObject.MethodURI(Method : TExtProcedure) : string;
@@ -1030,6 +1036,21 @@ procedure TExtSession.InitDefaultValues; begin
   ExtBuild      := 'ext-all';
   Charset       := 'utf-8'; // 'iso-8859-1'
   UpLoadPath    := '/uploads';
+end;
+
+function TExtSession.IsMobileApple: Boolean;
+var
+  LUserAgent: string;
+begin
+  if not FMobileBrowserDetectionDone then
+  begin
+    LUserAgent := RequestHeader['HTTP_USER_AGENT'];
+    FIsMobileApple :=
+      LUserAgent.Contains('iPhone') or
+      LUserAgent.Contains('iPad');
+    FMobileBrowserDetectionDone := True;
+  end;
+  Result := FIsMobileApple;
 end;
 
 // Calls events using Delphi style
@@ -1500,7 +1521,10 @@ begin
     P := P + 'Obj=' + ObjName;
   end;
   if P <> '' then P := '?' + P;
-  Result := 'Download.src="' + ExtSession.MethodURI(MetName) + P + '";';
+  if Session.IsMobileApple then
+    Result := 'window.open("' + ExtSession.MethodURI(MetName) + P + '");'
+  else
+    Result := 'Download.src="' + ExtSession.MethodURI(MetName) + P + '";';
 end;
 
 function TExtObject.GetExtSession(const AOwner: TComponent): TExtSession;
@@ -1593,6 +1617,22 @@ end;
 function TExtObject.GetExtSession: TExtSession;
 begin
   Result := GetExtSession(Owner);
+end;
+
+procedure TExtObject.SetConfigItem(const AName, AMethodName: string;
+  const AValue: array of const);
+begin
+  ExtSession.ResponseItems.SetConfigItem(Self, AName, AMethodName, AValue);
+end;
+
+procedure TExtObject.SetConfigItem(const AName, AValue: string);
+begin
+  ExtSession.ResponseItems.SetConfigItem(Self, AName, [AValue]);
+end;
+
+procedure TExtObject.SetConfigItem(const AName: string; const AValue: TExtFunction);
+begin
+  ExtSession.ResponseItems.SetConfigItem(Self, AName, [AValue, True]);
 end;
 
 procedure TExtObject.SetCustomConfigItem(const AName: string; const AValues: array of const);

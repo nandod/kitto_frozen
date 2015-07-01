@@ -36,6 +36,8 @@ type
   strict protected
     procedure AddTopToolbarButtons; override;
     procedure ExecuteNamedAction(const AActionName: string); override;
+    function GetParentDataPanel: TKExtDataPanelController;
+    function IsActionSupported(const AActionName: string): Boolean; override;
   public
     procedure UpdateObserver(const ASubject: IEFSubject;
       const AContext: string = ''); override;
@@ -47,7 +49,7 @@ type
 implementation
 
 uses
-  ExtPascal,
+  ExtPascal, StrUtils,
   EF.Localization,
   Kitto.Metadata.Views,
   Kitto.AccessControl, Kitto.Ext.Session;
@@ -92,6 +94,16 @@ begin
     inherited;
 end;
 
+function TKExtDataPanelLeafController.GetParentDataPanel: TKExtDataPanelController;
+begin
+  Result := TKExtDataPanelController(Config.GetObject('Sys/ParentDataPanel', Self));
+end;
+
+function TKExtDataPanelLeafController.IsActionSupported(const AActionName: string): Boolean;
+begin
+  Result := MatchText(AActionName, ['Refresh']);
+end;
+
 procedure TKExtDataPanelLeafController.LoadData;
 begin
   inherited;
@@ -105,19 +117,20 @@ procedure TKExtDataPanelLeafController.UpdateObserver(
 begin
   inherited;
   if AContext = 'RefreshAllRecords' then
-    TKExtDataPanelController(Config.GetObject('Sys/ParentDataPanel', Self)).LoadData;
+    GetParentDataPanel.LoadData;
 end;
 
 procedure TKExtDataPanelLeafController.AddTopToolbarButtons;
 begin
-  TExtToolbarSpacer.CreateAndAddTo(TopToolbar.Items);
-  FRefreshButton := TKExtButton.CreateAndAddTo(TopToolbar.Items);
-  FRefreshButton.SetIconAndScale('refresh');
-  FRefreshButton.Tooltip := _('Refresh data');
-  FRefreshButton.On('click', Ajax(TKExtDataPanelController(Config.GetObject('Sys/ParentDataPanel', Self)).LoadData));
-  if ViewTable.GetBoolean('Controller/PreventRefreshing') then
-    FRefreshButton.Hidden := True;
   inherited;
+  TExtToolbarSpacer.CreateAndAddTo(TopToolbar.Items);
+  FRefreshButton := AddTopToolbarButton('Refresh', _('Refresh data'), 'refresh', False);
+  if Assigned(FRefreshButton) then
+  begin
+    FRefreshButton.On('click', Ajax(GetParentDataPanel.LoadData));
+    if ViewTable.GetBoolean('Controller/PreventRefreshing') then
+      FRefreshButton.Hidden := True;
+  end;
 end;
 
 end.

@@ -102,7 +102,7 @@ type
   end;
 
   TKExtSession = class(TExtSession, IEFInterface, IEFObserver)
-  private
+  strict private
     FHomeController: TObject;
     FConfig: TKConfig;
     FViewHost: IKExtViewHost;
@@ -111,7 +111,6 @@ type
     FUploadedFiles: TObjectList<TKExtUploadedFile>;
     FOpenControllers: TObjectList<TObject>;
     FMacroExpander: TKExtSessionMacroExpander;
-    FGettextInstance: TGnuGettextInstance;
     FRefreshingLanguage: Boolean;
     FControllerHostWindow: TKExtControllerHostWindow;
     FDynamicScripts: TStringList;
@@ -126,13 +125,15 @@ type
     FViewportWidth: Integer;
     FViewportContent: string;
     FViewportWidthInInches: Integer;
+    FCreationDateTime: TDateTime;
+    FLastRequestDateTime: TDateTime;
+    FDisplayName: string;
     procedure LoadLibraries;
     procedure DisplayHomeView;
     procedure DisplayLoginView;
     procedure ReloadOrDisplayHomeView;
     function GetConfig: TKConfig;
     procedure ClearStatus;
-    function DisplayNewController(const AView: TKView): IKExtController;
     function FindOpenController(const AView: TKView): IKExtController;
     procedure SetActiveViewInViewHost(const AObject: TObject);
     procedure SetLanguageFromQueriesOrConfig;
@@ -157,7 +158,11 @@ type
     function GetDefaultHomeViewNodeNames(const ASuffix: string): TStringDynArray;
     function GetDefaultViewportWidth: Integer;
     const DEFAULT_VIEWPORT_WIDTH = 480;
-  protected
+    function GetDisplayName: string;
+    procedure SetDisplayName(const AValue: string);
+  private
+    FGettextInstance: TGnuGettextInstance;
+  strict protected
     function BeforeHandleRequest: Boolean; override;
     procedure AfterHandleRequest; override;
     procedure AfterNewSession; override;
@@ -180,6 +185,10 @@ type
     function AsObject: TObject;
     { IEFObserver }
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = '');
+
+    function DisplayNewController(const AView: TKView; const AForceModal: Boolean = False;
+      const AAfterCreateWindow: TProc<TKExtControllerHostWindow> = nil;
+      const AAfterCreate: TProc<IKExtController> = nil): IKExtController;
   public
     function FindPageTemplate(const APageName: string): string;
     function GetPageTemplate(const APageName: string): string;
@@ -317,6 +326,12 @@ type
     ///  are enabled for desktop browsers and disabled for mobile browsers.
     /// </summary>
     function TooltipsEnabled: Boolean;
+
+    property CreationDateTime: TDateTime read FCreationDateTime;
+    property LastRequestDateTime: TDateTime read FLastRequestDateTime;
+    property DisplayName: string read GetDisplayName write SetDisplayName;
+    function GetLoggedInUserName: string;
+    function GetOrigin: string;
   published
     procedure DelayedHome;
     procedure Logout;
@@ -414,6 +429,11 @@ begin
     Result := '';
 end;
 
+function TKExtSession.GetOrigin: string;
+begin
+  Result := RequestHeader['REMOTE_ADDR'];
+end;
+
 function TKExtSession.FindPageTemplate(const APageName: string): string;
 var
   LFileName: string;
@@ -454,6 +474,14 @@ end;
 function TKExtSession.GetSessionCookieName: string;
 begin
   Result := 'kitto';
+end;
+
+function TKExtSession.GetLoggedInUserName: string;
+begin
+  if Config.Authenticator.IsAuthenticated then
+    Result := Config.Authenticator.UserName
+  else
+    Result := '<Not Authenticated>';
 end;
 
 function TKExtSession.GetViewportContent: string;
@@ -553,6 +581,13 @@ begin
 //  end;
 end;
 
+function TKExtSession.GetDisplayName: string;
+begin
+  Result := FDisplayName;
+  if Result = '' then
+    Result := SessionId;
+end;
+
 function TKExtSession.GetHomeView: TKView;
 var
   LNodeNames: TStringDynArray;
@@ -645,8 +680,22 @@ begin
 end;
 
 procedure TKExtSession.DelayedHome;
+var
+  LUserAgent: string;
+
+
 begin
-  FViewportWidthInInches := QueryAsInteger['vpWidthInches'];
+  if IsMobileApple then
+  begin
+    LUserAgent := RequestHeader['HTTP_USER_AGENT'];
+    if LUserAgent.Contains('iPhone') then
+      FViewportWidthInInches := 4
+    else
+      FViewportWidthInInches := 8;
+  end
+  else
+    FViewportWidthInInches := QueryAsInteger['vpWidthInches'];
+
   FViewportWidth := GetDefaultViewportWidth();
   ResponseItems.ExecuteJSCode('setViewportWidth(' + IntToStr(FViewportWidth) + ');');
   // Try authentication with default credentials, if any, and skip login
@@ -708,6 +757,8 @@ begin
     end;
   end;
   Result := Config.Views.FindViewByNode(FLoginNode);
+  if not Assigned(Result) then
+    raise Exception.Create('Login View not found');
 end;
 
 procedure TKExtSession.DisplayLoginView;
@@ -721,7 +772,7 @@ begin
   if LLoginView.ControllerType = '' then
     LType := 'Login'
   else
-    LTYpe := '';
+    LType := '';
   FLoginController := TKExtControllerFactory.Instance.CreateController(ObjectCatalog, LLoginView, nil, nil, Self, LType).AsObject;
   if Supports(FLoginController, IKExtController, LIntf) then
     LIntf.Display;
@@ -729,8 +780,7 @@ begin
     TExtContainer(FLoginController).DoLayout;
 end;
 
-function TKExtSession.FindUploadedFile(
-  const AContext: TObject): TKExtUploadedFile;
+function TKExtSession.FindUploadedFile(const AContext: TObject): TKExtUploadedFile;
 var
   I: Integer;
 begin
@@ -848,8 +898,7 @@ begin
   FOpenControllers.Remove(AObject);
 end;
 
-procedure TKExtSession.RemoveUploadedFile(
-  const AFileDescriptor: TKExtUploadedFile);
+procedure TKExtSession.RemoveUploadedFile(const AFileDescriptor: TKExtUploadedFile);
 begin
   FUploadedFiles.Remove(AFileDescriptor);
 end;
@@ -861,7 +910,9 @@ begin
   DisplayView(Config.Views.ViewByName(AName));
 end;
 
-function TKExtSession.DisplayNewController(const AView: TKView): IKExtController;
+function TKExtSession.DisplayNewController(const AView: TKView; const AForceModal: Boolean;
+  const AAfterCreateWindow: TProc<TKExtControllerHostWindow>;
+  const AAfterCreate: TProc<IKExtController>): IKExtController;
 var
   LIsSynchronous: Boolean;
   LWidth: Integer;
@@ -871,7 +922,7 @@ begin
   Assert(Assigned(AView));
 
   // If there's no view host, we treat all views as windows.
-  LIsModal := not Assigned(FViewHost) or AView.GetBoolean('Controller/IsModal');
+  LIsModal := AForceModal or not Assigned(FViewHost) or AView.GetBoolean('Controller/IsModal');
   if Assigned(FControllerHostWindow) then
   begin
     FControllerHostWindow.Free(True);
@@ -880,13 +931,18 @@ begin
   if LIsModal then
   begin
     FControllerHostWindow := TKExtControllerHostWindow.Create(ObjectCatalog);
+    if Assigned(AAfterCreateWindow) then
+      AAfterCreateWindow(FControllerHostWindow);
     Result := TKExtControllerFactory.Instance.CreateController(ObjectCatalog, AView, FControllerHostWindow);
+    if Assigned(AAfterCreate) then
+      AAfterCreate(Result);
     if not Result.Config.GetBoolean('Sys/SupportsContainer') then
       FreeAndNil(FControllerHostWindow)
     else
     begin
       FControllerHostWindow.Layout := lyFit;
-      FControllerHostWindow.Title := _(AView.DisplayLabel);
+      if FControllerHostWindow.Title = '' then
+        FControllerHostWindow.Title := _(AView.DisplayLabel);
       FControllerHostWindow.Closable := AView.GetBoolean('Controller/AllowClose', True);
       FControllerHostWindow.FHostedController := Result.AsObject;
       FControllerHostWindow.Maximized := IsMobileBrowser;
@@ -994,6 +1050,11 @@ begin
   end;
 end;
 
+procedure TKExtSession.SetDisplayName(const AValue: string);
+begin
+  FDisplayName := AValue;
+end;
+
 procedure TKExtSession.ClearStatus;
 begin
   if Assigned(FStatusHost) then
@@ -1034,8 +1095,11 @@ end;
 
 procedure TKExtSession.EnsureSupportFiles(const ABaseName: string);
 begin
-  EnsureDynamicStyle(ABaseName);
-  EnsureDynamicScript(ABaseName);
+  if ABaseName <> '' then
+  begin
+    EnsureDynamicStyle(ABaseName);
+    EnsureDynamicScript(ABaseName);
+  end;
 end;
 
 procedure TKExtSession.EnsureViewSupportFiles(const AView: TKView);
@@ -1079,13 +1143,13 @@ begin
   if not FMobileBrowserDetectionDone then
   begin
     LUserAgent := RequestHeader['HTTP_USER_AGENT'];
-    TEFLogger.Instance.Log('UserAgent: '+LUserAgent);
+    TEFLogger.Instance.Log('UserAgent: ' + LUserAgent);
     FIsMobileBrowser := LUserAgent.Contains('Windows Phone') or
       LUserAgent.Contains('iPhone') or
       LUserAgent.Contains('iPad') or
       LUserAgent.Contains('Android');
     FMobileBrowserDetectionDone := True;
-    TEFLogger.Instance.Log('IsMobileBrowser: '+IfThen(FIsMobileBrowser,'True','False'));
+    TEFLogger.Instance.Log('IsMobileBrowser: ' + BoolToStr(FIsMobileBrowser, True));
   end;
   Result := FIsMobileBrowser;
 end;
@@ -1106,6 +1170,7 @@ end;
 procedure TKExtSession.AfterNewSession;
 begin
   inherited;
+  FCreationDateTime := Now;
   FSessionId := SessionCookie;
   TEFLogger.Instance.LogFmt('New session %s.', [FSessionId],
     TEFLogger.LOG_MEDIUM);
@@ -1122,6 +1187,7 @@ end;
 
 function TKExtSession.BeforeHandleRequest: Boolean;
 begin
+  FLastRequestDateTime := Now;
   TEFLogger.Instance.LogStrings('BeforeHandleRequest', Queries,
     TEFLogger.LOG_DETAILED);
   { TODO : only do this when ADO is used }
@@ -1147,6 +1213,7 @@ begin
   inherited;
   TEFLocalizationToolRegistry.CurrentTool.ForceLanguage(AValue);
   TEFLogger.Instance.LogFmt('Language %s set.', [AValue], TEFLogger.LOG_MEDIUM);
+  Config.Config.SetString('LanguageId', AValue);
 end;
 
 constructor TKExtSession.Create(AOwner: TObject);

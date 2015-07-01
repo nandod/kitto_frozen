@@ -1,5 +1,9 @@
 ﻿Type: Data
+IsLookup: True
 Controller: List
+  PopUpWindow:
+    Width: 800
+    Height: 400
   Filters:
     DisplayLabel: Search Jobs
     Items:
@@ -17,3 +21,5 @@ MainTable:
     LanguageReq:
     JobCountryRef:
     JobCountryRef.Currency: Job_Currency
+    JobDescription:
+      IsVisible: False

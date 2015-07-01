@@ -60,7 +60,7 @@ Databases:
       Data Source: %COMPUTERNAME%
 
 Auth: DB
-  Defaults:
+  .Defaults:
     UserName: administrator
     Password: password
 
@@ -87,10 +87,6 @@ Login:
       Mode: Password
       AskUser: True
         .Default: False
-
-Tablet: HomeTile
-
-Phone: HomeTilePhone
 
 HomeGirls:
   Controller: Viewport

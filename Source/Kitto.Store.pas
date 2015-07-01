@@ -118,7 +118,6 @@ type
     function GetIsDeleted: Boolean;
     function GetIsNew: Boolean;
   strict protected
-    property State: TKRecordState read FState;
     function GetChildClass(const AName: string): TEFNodeClass; override;
 
     /// <summary>
@@ -143,6 +142,7 @@ type
       var ANewValue: Variant; var ADoIt: Boolean); virtual;
     procedure FieldChanged(const AField: TKField; const AOldValue, ANewValue: Variant); virtual;
   public
+    property State: TKRecordState read FState;
     property Records: TKRecords read GetRecords;
     property Store: TKStore read GetStore;
     property Key: TKKey read GetKey;
@@ -199,6 +199,12 @@ type
     ///  Raises exceptions if fields are not found.
     /// </summary>
     function GetFieldValues(const AFieldNames: TStringDynArray): Variant;
+
+    /// <summary>
+    ///  Returns a concatenation field values using the specified separator.
+    ///  Raises exceptions if fields are not found.
+    /// </summary>
+    function GetFieldValuesAsString(const AFieldNames: TStringDynArray; const ASeparator: string): string;
 
     procedure SetTransientProperty(const ASubjectType, ASubjectName, APropertyName: string; const AValue: Variant);
     property OnSetTransientProperty: TProc<string, string, string, Variant>
@@ -316,9 +322,11 @@ type
     property IsEmpty: Boolean read GetIsEmpty;
 
     procedure Load(const ADBConnection: TEFDBConnection;
-      const ACommandText: string; const AAppend: Boolean = False); overload;
+      const ACommandText: string; const AAppend: Boolean = False;
+      const AForEachRecord: TProc<TKRecord> = nil); overload;
     procedure Load(const ADBQuery: TEFDBQuery; const AAppend: Boolean = False;
-      const AFieldsByIndex: Boolean = False); overload;
+      const AFieldsByIndex: Boolean = False;
+      const AForEachRecord: TProc<TKRecord> = nil); overload;
 
     /// <summary>
     ///   Appends a record and fills it with the specified values.
@@ -641,7 +649,7 @@ begin
 end;
 
 procedure TKStore.Load(const ADBQuery: TEFDBQuery; const AAppend: Boolean;
-  const AFieldsByIndex: Boolean);
+  const AFieldsByIndex: Boolean; const AForEachRecord: TProc<TKRecord>);
 var
   LRecord: TKRecord;
 begin
@@ -657,6 +665,8 @@ begin
     begin
       LRecord := Records.AppendAndInitialize;
       LRecord.ReadFromFields(ADBQuery.DataSet.Fields, AFieldsByIndex);
+      if Assigned(AForEachRecord) then
+        AForEachRecord(LRecord);
       ADBQuery.DataSet.Next;
     end;
   finally
@@ -664,13 +674,9 @@ begin
   end;
 end;
 
-procedure TKStore.RemoveRecord(const ARecord: TKRecord);
-begin
-  Records.Remove(ARecord);
-end;
-
 procedure TKStore.Load(const ADBConnection: TEFDBConnection;
-  const ACommandText: string; const AAppend: Boolean = False);
+  const ACommandText: string; const AAppend: Boolean;
+  const AForEachRecord: TProc<TKRecord>);
 var
   LDBQuery: TEFDBQuery;
 begin
@@ -682,13 +688,18 @@ begin
     LDBQuery.CommandText := ACommandText;
     LDBQuery.Open;
     try
-      Load(LDBQuery, AAppend);
+      Load(LDBQuery, AAppend, False, AForEachRecord);
     finally
       LDBQuery.Close;
     end;
   finally
     FreeAndNil(LDBQuery);
   end;
+end;
+
+procedure TKStore.RemoveRecord(const ARecord: TKRecord);
+begin
+  Records.Remove(ARecord);
 end;
 
 procedure TKStore.SetKey(const AValue: TKKey);
@@ -1142,6 +1153,17 @@ begin
   Result := VarArrayCreate([Low(AFieldNames), High(AFieldNames)], varVariant);
   for I := Low(AFieldNames) to High(AFieldNames) do
     Result[I] := FieldByName(AFieldNames[I]).Value;
+end;
+
+function TKRecord.GetFieldValuesAsString(const AFieldNames: TStringDynArray; const ASeparator: string): string;
+var
+  I: Integer;
+begin
+  for I := Low(AFieldNames) to High(AFieldNames) do
+    if I = Low(AFieldNames) then
+      Result := FieldByName(AFieldNames[I]).AsString
+    else
+      Result := Result + ASeparator + FieldByName(AFieldNames[I]).AsString;
 end;
 
 function TKRecord.GetIsDeleted: Boolean;

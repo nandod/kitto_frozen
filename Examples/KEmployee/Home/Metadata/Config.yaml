@@ -16,9 +16,9 @@ Databases:
 
 Auth: TextFile
   IsClearPassword: True
-  .Defaults:
-    UserName: user
-    Password: password
+  Defaults:
+    UserName: guest
+    .Password: password
 
 AccessControl: Null
 
@@ -27,17 +27,17 @@ Login:
     BorderPanel:
       NorthView:
         Controller: HtmlPanel
-          Height: 100
+          Height: 120
           Html: |
             <div style="text-align: center">
               <p/>
               <p><img src="%IMAGE(Firebird_Employee)%"></img></p>
-              <p>An example activity tracking application.</p>
+              <p><H1>Firebird Employee Demo</H1></p>
               <p/>
             </div>
-    ExtraWidth: 360
+    ExtraWidth: 400
     LabelWidth: 150
-    ExtraHeight: 120
+    ExtraHeight: 150
     LocalStorage:
       Mode: Password
       AskUser: True
@@ -49,10 +49,11 @@ Login:
 #HomeView: Home
 
 Ext:
-  Theme: custom
+  Theme: access
 # Either utf-8 or a SBCS corresponding to the system code page
 # (such as iso-8859-1 for Western Europe). Defaults to utf-8.
 Charset: utf-8
 
 FastCGI:
   TCPPort: 2203
+LanguageId: en
