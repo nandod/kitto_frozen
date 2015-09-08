@@ -237,9 +237,15 @@ function GetProgramFilesDirectory: string;
 ///   extension AExtension. Keeps generating random names until it finds a free
 ///   name.
 /// </summary>
-function GetUniqueFileName(const APath, AExtension: string): string;
+function GetUniqueFileName(const APath, AExtension: string): string; overload;
 
 /// <summary>
+///   Returns a Unique file name starting from ADefaultFileName.
+///   If the file already exists adds random names until it finds a free name.
+/// </summary>
+function GetUniqueFileName(const ADefaultFileName: string): string; overload;
+
+  /// <summary>
 ///   Returns a new TFormatSettings records in a manner that unifies syntax for
 ///   different Delphi versions. Use it instead of GetLocaleFormatSettings or
 ///   TFormatSettings.Create.
@@ -1030,6 +1036,18 @@ begin
   repeat
     Result := APath + GetRandomString(8) + AExtension;
   until not FileExists(Result);
+end;
+
+function GetUniqueFileName(const ADefaultFileName: string): string;
+var
+  LExtension: string;
+begin
+  Result := ADefaultFileName;
+  while FileExists(Result) do
+  begin
+    LExtension := ExtractFileExt(ADefaultFileName);
+    Result := ChangeFileExt(ADefaultFileName, '_' + GetRandomString(8) + LExtension);
+  end;
 end;
 
 function GetTempFileName(const AFileExtension: string = '.tmp'): string;

@@ -114,6 +114,7 @@ type
     function GetAliasedDBColumnNameOrExpression: string;
     function GetDisplayTemplate: string;
     function GetBlankValue: Boolean;
+    function GetAutoCompleteMinChars: Integer;
     function GetLookupFilter: string;
   strict protected
     class function BeautifyFieldName(const AFieldName: string): string; virtual;
@@ -124,9 +125,11 @@ type
     function GetFields: TKModelFields;
     function GetDataType: TEFDataType; override;
   public
+    const DEFAULT_AUTOCOMPLETEMINCHARS = 4;
+
     function GetEmptyAsNull: Boolean; override;
     procedure BeforeSave; override;
-  public
+
     function GetResourceURI: string; override;
 
     property Model: TKModel read GetModel;
@@ -338,6 +341,13 @@ type
     ///   If no image is displayed, this property is ignored.
     /// </summary>
     property BlankValue: Boolean read GetBlankValue;
+
+    /// <summary>
+    ///   Indicates how many chars must be edited before the
+    ///   search starts.
+    ///   By default after 4 characters
+    /// </summary>
+    property AutoCompleteMinChars: Integer read GetAutoCompleteMinChars;
 
     /// <summary>
     ///   Optional value to set for the field when a new record is created.
@@ -647,7 +657,7 @@ type
       const ALimit: Integer = 0; const AForEachRecord: TProc<TEFNode> = nil): Integer; virtual; abstract;
 
     procedure SaveRecords(const AStore: TEFTree; const APersist: Boolean;
-      const AAfterPersist: TProc); virtual; abstract;
+      const AAfterPersist: TProc; const AUseTransaction: Boolean = True); virtual; abstract;
 
     /// <summary>
     ///  Saves the specified record.
@@ -670,7 +680,7 @@ type
     ///  AAfterPersist.
     /// </remarks>
     procedure SaveRecord(const ARecord: TEFNode; const APersist: Boolean;
-      const AAfterPersist: TProc); virtual; abstract;
+      const AAfterPersist: TProc; const AUseTransaction: Boolean = True); virtual; abstract;
 
     /// <summary>
     ///  Called when a new record is being created in the GUI, after applying
@@ -1560,6 +1570,11 @@ end;
 function TKModelField.GetBlankValue: Boolean;
 begin
   Result := GetBoolean('BlankValue');
+end;
+
+function TKModelField.GetAutoCompleteMinChars: Integer;
+begin
+  Result := GetInteger('AutoCompleteMinChars', DEFAULT_AUTOCOMPLETEMINCHARS);
 end;
 
 function TKModelField.CanActuallyModify: Boolean;

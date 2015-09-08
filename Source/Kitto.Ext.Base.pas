@@ -204,6 +204,7 @@ type
   strict private
     FView: TKView;
     FActionObserver: IEFObserver;
+    FOnInitController: TProc<IKExtController>;
   strict protected
     procedure InitController(const AController: IKExtController); virtual;
     procedure SetView(const AValue: TKView); virtual;
@@ -212,6 +213,7 @@ type
   public
     property View: TKView read FView write SetView;
     property ActionObserver: IEFObserver read FActionObserver write FActionObserver;
+    property OnInitController: TProc<IKExtController> read FOnInitController write FOnInitController;
   published
     procedure ExecuteButtonAction; virtual;
   end;
@@ -315,6 +317,10 @@ type
   strict protected
     function GetDisplayLabel: string;
     procedure ExecuteTool; virtual;
+    // Called after ExecuteTool. The default implementation calls AfterExecuteTool.
+    // Override this with an empty method if you plan to call AfterExecuteTool at
+    // a different time.
+    procedure DoAfterExecuteTool; virtual;
     procedure AfterExecuteTool; virtual;
     procedure DoDisplay; override;
   public
@@ -1389,11 +1395,16 @@ procedure TKExtToolController.AfterExecuteTool;
 begin
 end;
 
+procedure TKExtToolController.DoAfterExecuteTool;
+begin
+  AfterExecuteTool;
+end;
+
 procedure TKExtToolController.DoDisplay;
 begin
   inherited;
   ExecuteTool;
-  AfterExecuteTool;
+  DoAfterExecuteTool;
   //NotifyObservers('Closed');
 end;
 
@@ -1445,6 +1456,8 @@ end;
 
 procedure TKExtActionButton.InitController(const AController: IKExtController);
 begin
+  if Assigned(FOnInitController) then
+    FOnInitController(AController);
 end;
 
 procedure TKExtActionButton.PerformBeforeExecute;

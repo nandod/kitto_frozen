@@ -88,6 +88,7 @@ type
     function GetQualifiedDBNameOrExpression: string;
     function GetReferenceField: TKModelField;
     function GetBlankValue: Boolean;
+    function GetAutoCompleteMinChars: Integer;
     function GetReferenceName: string;
     function GetDisplayTemplate: string;
     function GetFileNameField: string;
@@ -263,6 +264,7 @@ type
     property EditFormat: string read GetEditFormat;
     property DisplayFormat: string read GetDisplayFormat;
     property BlankValue: Boolean read GetBlankValue;
+    property AutoCompleteMinChars: Integer read GetAutoCompleteMinChars;
     property DisplayTemplate: string read GetDisplayTemplate;
 
     property Rules: TKRules read GetRules;
@@ -565,7 +567,9 @@ type
     function GetModelDetailReferenceName: string;
     function GetModelDetailReference: TKModelDetailReference;
     function GetDatabaseName: string;
-  strict protected
+  strict
+  private
+    function GetIsLarge: Boolean; protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
     function GetFields: TKViewFields;
     function GetDetailTables: TKViewTables;
@@ -714,6 +718,13 @@ type
     function GetFilterByFields(APredicate: TFunc<TKFilterByViewField, Boolean>): TArray<TKFilterByViewField>;
 
     function GetFilteredByFields(const AViewField: TKViewField): TKViewFieldArray;
+
+    /// <summary>
+    ///  True if the underlying data store is a large one. Set this to True at the
+    ///  view table level to override the setting in the model (for example if
+    ///  the view table is filtered).
+    /// </summary>
+    property IsLarge: Boolean read GetIsLarge;
   end;
 
   TKDataView = class(TKView)
@@ -1177,6 +1188,17 @@ function TKViewTable.GetIsDetail: Boolean;
 begin
   // MainTable has the view as parent, other tables have the collection.
   Result := Parent is TKViewTables;
+end;
+
+function TKViewTable.GetIsLarge: Boolean;
+var
+  LNode: TEFNode;
+begin
+  LNode := FindNode('IsLarge');
+  if Assigned(LNode) then
+    Result := LNode.AsBoolean
+  else
+    Result := Model.IsLarge;
 end;
 
 function TKViewTable.GetIsReadOnly: Boolean;
@@ -1698,6 +1720,17 @@ begin
     Result := ModelField.BlankValue
   else
     Result := LNode.AsBoolean;
+end;
+
+function TKViewField.GetAutoCompleteMinChars: Integer;
+var
+  LNode: TEFNode;
+begin
+  LNode := FindNode('AutoCompleteMinChars');
+  if LNode = nil then
+    Result := ModelField.AutoCompleteMinChars
+  else
+    Result := LNode.AsInteger;
 end;
 
 function TKViewField.GetCanInsert: Boolean;

@@ -105,3 +105,24 @@ MainTable:
           FileName: %APP_PATH%\Resources\taskitto_logo_150.png
           ClientFileName: takitto_logo.png
           ContentType: image/png
+      UploadFile:
+        DisplayLabel: Upload image
+        Controller: UploadFile
+          Path: %APP_PATH%\Documents\Uploaded
+          AcceptedWildcards: *.jpg *.png
+      UploadExcel:
+        DisplayLabel: Upload Excel File
+        Controller: UploadExcelTool
+          AutoRefresh: All
+          RequireSelection: False
+          FieldMappings:
+            DESCRIPTION: DESCRIPTION
+            PHASE ID: PHASE_ID
+            EMPLOYEE ID: EMPLOYEE_ID
+            ROLE ID: ROLE_ID
+            TYPE ID: TYPE_ID
+            ACTIVITY DATE: ACTIVITY_DATE
+            START TIME: START_TIME
+            END TIME: END_TIME
+            STATUS: STATUS
+          AcceptedWildcards: *.xls

@@ -65,10 +65,11 @@ type
     function GetSelectCall(const AMethod: TExtProcedure): TExtFunction; override;
     function IsMultiSelect: Boolean; override;
     function GetDefaultRemoteSort: Boolean; override;
-    function GetIsPaged: Boolean;
+    function GetIsPaged: Boolean; override;
     function IsActionVisible(const AActionName: string): Boolean; override;
     function IsActionSupported(const AActionName: string): Boolean; override;
   public
+    const DEFAULT_PAGE_RECORD_COUNT = 100;
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); override;
     procedure AfterConstruction; override;
     procedure Activate; override;
@@ -126,7 +127,7 @@ function TKExtGridPanel.GetIsPaged: Boolean;
 begin
   Assert(Assigned(ViewTable));
 
-  Result := ViewTable.GetBoolean('Controller/PagingTools', ViewTable.Model.IsLarge);
+  Result := ViewTable.GetBoolean('Controller/PagingTools', ViewTable.IsLarge);
 end;
 
 procedure TKExtGridPanel.AfterConstruction;
@@ -211,7 +212,7 @@ begin
   if (LGroupingFieldName <> '') or LGroupingMenu then
   begin
     FGridView := TExtGridGroupingView.Create(Self);
-    TExtGridGroupingView(FGridView).EmptyGroupText := _('No data to display in this group.');
+    TExtGridGroupingView(FGridView).EmptyGroupText := _('Grouping value undefined.');
     TExtGridGroupingView(FGridView).StartCollapsed := ViewTable.GetBoolean('Controller/Grouping/StartCollapsed');
     TExtGridGroupingView(FGridView).EnableGroupingMenu := LGroupingMenu;
     TExtGridGroupingView(FGridView).EnableNoGroups := LGroupingMenu;
@@ -723,7 +724,7 @@ begin
   // By default show paging toolbar for large models.
   if GetIsPaged then
   begin
-    FPageRecordCount := LViewTable.GetInteger('Controller/PageRecordCount', 100);
+    FPageRecordCount := LViewTable.GetInteger('Controller/PageRecordCount', DEFAULT_PAGE_RECORD_COUNT);
     FEditorGridPanel.Bbar := CreatePagingToolbar;
   end;
 
@@ -961,18 +962,41 @@ begin
 end;
 
 function TKExtGridPanel.GetSelectConfirmCall(const AMessage: string; const AMethod: TExtProcedure): string;
+var
+  LOpen, LClose: Integer;
+  LFieldName: string;
+  LMessage: string;
 begin
   if IsMultiSelect then
     Result := Format('confirmCall("%s", "%s", ajaxMultiSelection, {methodURL: "%s", selModel: %s, fieldNames: "%s"});',
       [_(Session.Config.AppTitle), AMessage, MethodURI(AMethod),
       FSelectionModel.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')])
   else
-    { TODO :
-      Add CaptionField to ViewTable for cases when the model's CaptionField
-      is not part of the ViewTable or is aliased. }
-    Result := Format('selectConfirmCall("%s", "%s", %s, "%s", {methodURL: "%s", selModel: %s, fieldNames: "%s"});',
-      [_(Session.Config.AppTitle), AMessage, FSelectionModel.JSName, ViewTable.Model.CaptionField.FieldName,
-      MethodURI(AMethod), FSelectionModel.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')]);
+  begin
+      (* WORKAROUND :
+        If the message contains a {fieldname} instead of {caption}, the name of the field is
+        used as CaptionFieldName and the macro is substituted with {caption}. so the
+        javascript selectConfirmCall function can work with a *)
+    LOpen := pos('{', AMessage);
+    LClose := pos('}', AMessage);
+    LFieldName := copy(AMessage, LOpen+1, LClose-LOpen-1);
+    if (LFieldName <> '') and not SameText(LFieldName, 'caption') then
+    begin
+      LMessage := copy(AMessage,1,LOpen)+'caption'+copy(AMessage,LClose,maxInt);
+      Result := Format('selectConfirmCall("%s", "%s", %s, "%s", {methodURL: "%s", selModel: %s, fieldNames: "%s"});',
+        [_(Session.Config.AppTitle), LMessage, FSelectionModel.JSName, LFieldName,
+        MethodURI(AMethod), FSelectionModel.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')]);
+    end
+    else
+    begin
+      { TODO :
+        Add CaptionField to ViewTable for cases when the model's CaptionField
+        is not part of the ViewTable or is aliased. }
+      Result := Format('selectConfirmCall("%s", "%s", %s, "%s", {methodURL: "%s", selModel: %s, fieldNames: "%s"});',
+        [_(Session.Config.AppTitle), AMessage, FSelectionModel.JSName, ViewTable.Model.CaptionField.FieldName,
+        MethodURI(AMethod), FSelectionModel.JSName, Join(ViewTable.GetKeyFieldAliasedNames, ',')]);
+    end;
+  end;
 end;
 
 function TKExtGridPanel.GetSelectCall(const AMethod: TExtProcedure): TExtFunction;

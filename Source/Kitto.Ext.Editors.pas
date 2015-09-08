@@ -1976,7 +1976,7 @@ begin
   HiddenName := AViewField.FieldNamesForUpdate;
 
   TypeAhead := True;
-  MinChars := AViewField.GetInteger('AutoCompleteMinChars', 4);
+  MinChars := AViewField.AutoCompleteMinChars;
   if AViewField.IsReference then
   begin
     FListMode := Lookup;
@@ -2303,7 +2303,7 @@ end;
 procedure TKExtFormNumericField.FieldChange(This: TExtFormField; NewValue,
   OldValue: string);
 begin
-  FRecordField.SetAsJSONValue(NewValue, False, Session.Config.UserFormatSettings);
+  FRecordField.SetAsJSONValue(NewValue, False, Session.Config.JSFormatSettings);
 end;
 
 function TKExtFormNumericField.GetFieldName: string;
