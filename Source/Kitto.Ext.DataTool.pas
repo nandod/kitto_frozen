@@ -21,7 +21,7 @@ interface
 uses
   SysUtils,
   Kitto.Metadata.DataView,
-  Kitto.Ext.Base;
+  Kitto.Ext.Base, Kitto.Ext.Controller;
 
 { TODO : refactor these two classes to keep duplicated code to a minimum }
 type
@@ -48,25 +48,26 @@ type
 
   TKExtDataWindowToolController = class(TKExtWindowToolController)
   strict private
+    FSelectedRecords: TArray<TKViewTableRecord>;
     function GetServerRecord: TKViewTableRecord;
     function GetServerStore: TKViewTableStore;
     function GetViewTable: TKViewTable;
+    procedure StoreSelectedRecords;
   strict protected
     procedure DoDisplay; override;
     procedure AfterExecuteTool; override;
     property ServerStore: TKViewTableStore read GetServerStore;
     property ServerRecord: TKViewTableRecord read GetServerRecord;
     property ViewTable: TKViewTable read GetViewTable;
-
+    property SelectedRecords: TArray<TKViewTableRecord> read FSelectedRecords;
     procedure RefreshData(const AAllRecords: Boolean = False);
 
     procedure ExecuteInTransaction(const AProc: TProc);
-
-    procedure EnumSelectedRecords(const AProc: TProc<TKViewTableRecord>);
   end;
 
   ///	<summary>
-  ///  Base class for launch a command batch or an executable
+  ///  Executes a command or executable file.
+  ///  Params: WaitForCompletion: Boolean (default True).
   /// </summary>
   TKExtDataCmdToolController = class(TKExtDataToolController)
   strict private
@@ -89,7 +90,7 @@ implementation
 uses
   StrUtils,
   EF.Tree, EF.DB, EF.StrUtils, EF.SysUtils, EF.Localization,
-  Kitto.Config, Kitto.Ext.Session, Kitto.Ext.Controller;
+  Kitto.Config, Kitto.Ext.Session;
 
 procedure LoadRecordDetails(const ARecord: TKViewTableRecord);
 begin
@@ -201,27 +202,6 @@ begin
     RefreshData(SameText(LAutoRefresh, 'All'));
 end;
 
-procedure TKExtDataWindowToolController.EnumSelectedRecords(
-  const AProc: TProc<TKViewTableRecord>);
-var
-  LKey: TEFNode;
-  LRecordCount: Integer;
-  I: Integer;
-begin
-  Assert(Assigned(AProc));
-
-  LKey := TEFNode.Create;
-  try
-    LKey.Assign(ServerStore.Key);
-    Assert(LKey.ChildCount > 0);
-    LRecordCount := Length(EF.StrUtils.Split(Session.Queries.Values[LKey[0].Name], ','));
-    for I := 0 to LRecordCount - 1 do
-      AProc(ServerStore.GetRecord(Session.GetQueries, Session.Config.JSFormatSettings, I));
-  finally
-    FreeAndNil(LKey);
-  end;
-end;
-
 procedure TKExtDataWindowToolController.ExecuteInTransaction(const AProc: TProc);
 var
   LDBConnection: TEFDBConnection;
@@ -239,9 +219,30 @@ begin
   end;
 end;
 
+procedure TKExtDataWindowToolController.StoreSelectedRecords;
+var
+  LKey: TEFNode;
+  LRecordCount: Integer;
+  I: Integer;
+begin
+  SetLength(FSelectedRecords, 0);
+  LKey := TEFNode.Create;
+  try
+    LKey.Assign(ServerStore.Key);
+    Assert(LKey.ChildCount > 0);
+    LRecordCount := Length(EF.StrUtils.Split(Session.Queries.Values[LKey[0].Name], ','));
+    SetLength(FSelectedRecords, LRecordCount);
+    for I := 0 to LRecordCount - 1 do
+      FSelectedRecords[I] := ServerStore.GetRecord(Session.GetQueries, Session.Config.JSFormatSettings, I);
+  finally
+    FreeAndNil(LKey);
+  end;
+end;
+
 procedure TKExtDataWindowToolController.DoDisplay;
 begin
   inherited;
+  StoreSelectedRecords;
   if Config.GetBoolean('RequireDetails') then
     LoadRecordDetails(ServerRecord);
 end;
@@ -279,21 +280,23 @@ end;
 
 procedure TKExtDataCmdToolController.ExecuteTool;
 var
-  LBatchCommand, LParameters: string;
+  LBatchFileName, LBatchCommand, LParameters: string;
 begin
   inherited;
-  LBatchCommand := BatchFileName;
-  Assert(LBatchCommand <> '','BatchFileName is mandatory');
-  if not FileExists(LBatchCommand) then
-    raise Exception.CreateFmt('File not found %s', [BatchFileName]);
+  LBatchFileName := ExpandServerRecordValues(BatchFileName);
+  Assert(LBatchFileName <> '','BatchFileName is mandatory');
+  if not FileExists(LBatchFileName) then
+    raise Exception.CreateFmt('File not found %s', [LBatchFileName]);
 
-  LParameters := Parameters;
+  LParameters := ExpandServerRecordValues(Parameters);
   if LParameters <> '' then
-    LBatchCommand := LBatchCommand + ' ' + LParameters;
+    LBatchCommand := LBatchFileName + ' ' + LParameters
+  else
+    LBatchCommand := LBatchFileName;
 
   //Execute file
-  if ExecuteApplication(LBatchCommand, True) <> 0 then
-    raise Exception.CreateFmt('Error executing %s', [ExtractFileName(BatchFileName)]);
+  if ExecuteApplication(LBatchCommand, Config.GetBoolean('WaitForCompletion', True)) <> 0 then
+    raise Exception.CreateFmt('Error executing %s', [ExtractFileName(LBatchFileName)]);
 end;
 
 function TKExtDataCmdToolController.GetBatchFileName: string;
