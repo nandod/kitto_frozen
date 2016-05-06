@@ -101,6 +101,11 @@ type
     function GetControllerToRemove: TObject; override;
   end;
 
+  TKExtRef = record
+    IsCSS: Boolean;
+    Path: string;
+  end;
+
   TKExtSession = class(TExtSession, IEFInterface, IEFObserver)
   strict private
     FHomeController: TObject;
@@ -128,6 +133,8 @@ type
     FCreationDateTime: TDateTime;
     FLastRequestDateTime: TDateTime;
     FDisplayName: string;
+    class var
+      FAdditionalRefs: TList<TKExtRef>;
     procedure LoadLibraries;
     procedure DisplayHomeView;
     procedure DisplayLoginView;
@@ -309,6 +316,12 @@ type
     ///  If the specified files don't exist or were already added, nothing is done.
     /// </summary>
     procedure EnsureViewSupportFiles(const AView: TKView);
+
+    /// <summary>
+    ///  Calls this in the initialization section of a unit defining a controller
+    ///  to ensure that additional javascript or css files are included.
+    /// </summary>
+    class procedure AddAdditionalRef(const APath: string; const AIsCSS: Boolean = False);
 
     /// <summary>
     ///  True if the last request came from a mobile browser.
@@ -530,6 +543,7 @@ class destructor TKExtSession.Destroy;
 begin
   TEFMacroExpansionEngine.OnGetInstance := nil;
   TKConfig.OnGetInstance := nil;
+  FreeAndNil(FAdditionalRefs);
 end;
 
 procedure TKExtSession.ReloadOrDisplayHomeView;
@@ -828,22 +842,20 @@ procedure TKExtSession.LoadLibraries;
 var
   LLibraries: TStringDynArray;
   LLibName: string;
+  LRef: TKExtRef;
 begin
 { TODO :
 Find a way to reference optional libraries only if the controllers that need
 them are linked in; maybe a global repository fed by initialization sections.
 Duplicates must be handled/ignored. }
-  SetLibrary(ExtPath + '/examples/ux/statusbar/StatusBar');
-  SetCSS(ExtPath + '/examples/ux/statusbar/css/statusbar');
+  SetLibrary('{ext}/examples/ux/statusbar/StatusBar');
+  SetCSS('{ext}/examples/ux/statusbar/css/statusbar');
 
-  SetLibrary(ExtPath + '/examples/ux/fileuploadfield/FileUploadField');
-  SetCSS(ExtPath + '/examples/ux/fileuploadfield/css/fileuploadfield');
+  SetLibrary('{ext}/examples/ux/fileuploadfield/FileUploadField');
+  SetCSS('{ext}/examples/ux/fileuploadfield/css/fileuploadfield');
 
-  SetLibrary(ExtPath + '/examples/ux/RowEditor');
-  SetCSS(ExtPath + '/examples/shared/examples');
-  SetCSS(ExtPath + '/examples/ux/css/RowEditor');
-
-  SetLibrary(ExtPath + '/examples/shared/examples'); // For Ext.msg.
+  SetLibrary('{ext}/examples/shared/examples'); // For Ext.msg.
+  SetCSS('{ext}/examples/shared/examples');
   SetRequiredLibrary('DateTimeField');
   SetRequiredLibrary('NumericField');
   SetRequiredLibrary('DefaultButton');
@@ -854,6 +866,14 @@ Duplicates must be handled/ignored. }
     SetRequiredLibrary('kitto-core-desktop', True);
   SetRequiredLibrary('kitto-init');
   SetOptionalLibrary('application', True);
+
+  for LRef in FAdditionalRefs do
+  begin
+    if LRef.IsCSS then
+      SetCSS(LRef.Path)
+    else
+      SetLibrary(LRef.Path);
+  end;
 
   LLibraries := Config.Config.GetStringArray('JavaScriptLibraries');
   for LLibName in LLibraries do
@@ -1154,6 +1174,15 @@ begin
   Result := FIsMobileBrowser;
 end;
 
+class procedure TKExtSession.AddAdditionalRef(const APath: string; const AIsCSS: Boolean);
+var
+  LValue: TKExtRef;
+begin
+  LValue.Path := APath;
+  LValue.IsCSS := AIsCSS;
+  FAdditionalRefs.Add(LValue);
+end;
+
 procedure TKExtSession.AddUploadedFile(
   const AFileDescriptor: TKExtUploadedFile);
 begin
@@ -1252,6 +1281,7 @@ begin
       else
         Result := nil;
     end;
+  FAdditionalRefs := TList<TKExtRef>.Create;
 end;
 
 procedure TKExtSession.SetViewHost(const AValue: IKExtViewHost);

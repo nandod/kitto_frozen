@@ -601,6 +601,7 @@ procedure TExtSession.SetLibrary(pLibrary : string = ''; CSS : boolean = false; 
 var
   Root : string;
 begin
+  pLibrary := ReplaceStr(pLibrary, '{ext}', ExtPath);
   if pos(pLibrary + '.js', FLibraries) = 0 then
     if pLibrary = '' then
       FLibraries := '' // Clear FLibraries
@@ -634,6 +635,7 @@ procedure TExtSession.SetCSS(pCSS : string; Check : boolean = true);
 var
   Root : string;
 begin
+  pCSS := ReplaceStr(pCSS, '{ext}', ExtPath);
   if pos(pCSS + '.css', FLibraries) = 0 then
     if pCSS = '' then
       FLibraries := '' // Clear FLibraries
@@ -1116,7 +1118,7 @@ begin
     '  <meta name="mobile-web-app-capable" content="yes" />' + sLineBreak +
     '  <meta name="apple-mobile-web-app-capable" content="yes" />' + sLineBreak +
     '  <link rel=stylesheet href="<%ExtPath%>/resources/css/<%ExtBuild%>.css" />' + sLineBreak +
-    '  <script src="<%ExtPath%>/adapter/ext/ext-base.js"></script>' + sLineBreak +
+    '  <script src="<%ExtPath%>/adapter/ext/ext-base<%DebugSuffix%>.js"></script>' + sLineBreak +
     '  <script src="<%ExtPath%>/<%ExtBuild%><%DebugSuffix%>.js"></script>' + sLineBreak +
     {$IFDEF DEBUGJS}
     '  <script src="/codepress/Ext.ux.CodePress.js"></script>' + sLineBreak +
@@ -2423,16 +2425,16 @@ begin
   end;
 end;
 
-function SurroundAjaxParam(Param : string) : string;
+function SurroundAjaxParam(Param: string): string;
 var
-  I : integer;
+  I: Integer;
 begin
-  I := pos('%', Param);
-  if (I <> 0) and (I <> length(Param))  then
-    if CharInSet(Param[I+1], ['0'..'9']) then
-      Result := '"+encodeURIComponent(' + Param + ')+"'
+  I := Pos('%', Param);
+  if (I <> 0) and (I <> Length(Param))  then
+    if CharInSet(Param[I + 1], ['0'..'9']) then
+      Result := '" + encodeURIComponent(' + Param + ') + "'
     else
-      Result := '"+encodeURIComponent(' + copy(Param, I+1, length(Param)) + ')+"'
+      Result := '" + encodeURIComponent(' + Copy(Param, I + 1, Length(Param)) + ') + "'
   else
     Result := Param;
 end;

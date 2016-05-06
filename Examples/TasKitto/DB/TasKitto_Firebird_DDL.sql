@@ -145,7 +145,8 @@ SELECT
   ACTIVITY_DATE, AVG((end_time - start_time)/3600) DURATION, COUNT(*) ACTIVITIES
 FROM ACTIVITY
 GROUP BY
-  ACTIVITY_DATE;
+  ACTIVITY_DATE
+;
   
 /******************* EXCEPTIONS *******************/
 
