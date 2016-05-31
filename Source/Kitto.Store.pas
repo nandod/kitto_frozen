@@ -21,7 +21,7 @@ unit Kitto.Store;
 interface
 
 uses
-  SysUtils, Types, Classes, DB, Generics.Collections,
+  SysUtils, Types, Classes, DB, Generics.Collections, Generics.Defaults,
   superobject,
   EF.Tree, EF.DB, EF.Types,
   Kitto.Metadata.Models;
@@ -100,10 +100,13 @@ type
 
   TKRecordState = (rsNew, rsClean, rsDirty, rsDeleted);
 
+  TKFieldFilterFunc = TFunc<TKField, Boolean>;
+
   TKRecord = class(TEFNode)
   strict private
     FBackup: TEFNode;
     FState: TKRecordState;
+    FPreviousState: TKRecordState;
     FDetailStores: TObjectList<TKStore>;
     FOnFieldChange: TKFieldChangeEvent;
     FOnSetTransientProperty: TProc<string, string, string, Variant>;
@@ -117,6 +120,7 @@ type
     function GetStore: TKStore;
     function GetIsDeleted: Boolean;
     function GetIsNew: Boolean;
+    procedure SetState(const AValue: TKRecordState);
   strict protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
 
@@ -143,6 +147,7 @@ type
     procedure FieldChanged(const AField: TKField; const AOldValue, ANewValue: Variant); virtual;
   public
     property State: TKRecordState read FState;
+    procedure RestorePreviousState;
     property Records: TKRecords read GetRecords;
     property Store: TKStore read GetStore;
     property Key: TKKey read GetKey;
@@ -152,6 +157,7 @@ type
     function FieldByName(const AFieldName: string): TKField;
     procedure EnumFields(const AProc: TFunc<TKField, Boolean>);
     function MatchesValues(const AValues: TEFNode): Boolean;
+    procedure HandleSetToNullInstructions;
 
     /// <summary>
     ///  Reads field values from the current dataset record, applying
@@ -165,22 +171,34 @@ type
     /// names are not in the passed node are set to Null.</summary>
     procedure ReadFromNode(const ANode: TEFNode);
 
-    function GetAsJSON(const AForDisplay: Boolean): string;
-    function GetAsXML(const AForDisplay: Boolean): string;
+    function GetAsJSON(const AForDisplay: Boolean; const AFieldFilterFunc: TKFieldFilterFunc = nil): string;
+    function GetAsXML(const AForDisplay: Boolean; const AFieldFilterFunc: TKFieldFilterFunc = nil): string;
 
     /// <summary>
     ///  Replaces occurrencess of {FieldName} tags in the specified string
     ///  with actual field values, formatted as strings.
-    ///  If the record's store has a master record, this method also replaces
-    ///  occurrences of {MasterRecord.FieldName} with string representations of
-    ///  master record field values.
     /// </summary>
     function ExpandExpression(const AExpression: string): string; virtual;
 
-    procedure MarkAsModified;
-    procedure MarkAsDeleted;
-    procedure MarkAsClean;
+    /// <summary>
+    ///  Marks the record as new. An insert instruction will be executed when
+    ///  persisting it.
+    /// </summary>
     procedure MarkAsNew;
+    /// <summary>
+    ///  Marks the record as dirty unless it's already new or deleted.
+    /// </summary>
+    procedure MarkAsModified;
+    /// <summary>
+    ///  Marks the record as deleted. A delete instruction will be executed when
+    ///  persisting it.
+    /// </summary>
+    procedure MarkAsDeleted;
+    /// <summary>
+    ///  Marks the record as clean. No instructions will be performed when
+    ///  persisting it.
+    /// </summary>
+    procedure MarkAsClean;
 
     property IsNew: Boolean read GetIsNew;
     property IsDeleted: Boolean read GetIsDeleted;
@@ -213,6 +231,8 @@ type
     property OnSetTransientProperty: TProc<string, string, string, Variant>
       read FOnSetTransientProperty write FOnSetTransientProperty;
   end;
+
+  TKRecordCompareFunc = TFunc<TKRecord, TKRecord, Integer>;
 
   TKRecords = class(TEFNode)
   private
@@ -253,12 +273,19 @@ type
     procedure Remove(const ARecord: TKRecord);
 
     function GetAsJSON(const AForDisplay: Boolean;
-      const AFrom: Integer = 0; const AFor: Integer = 0): string;
+      const AFrom: Integer = 0; const AFor: Integer = 0;
+      const AFieldFilterFunc: TKFieldFilterFunc = nil): string;
 
     function GetAsXML(const AForDisplay: Boolean;
-      const AFrom: Integer = 0; const AFor: Integer = 0): string;
+      const AFrom: Integer = 0; const AFor: Integer = 0;
+      const AFieldFilterFunc: TKFieldFilterFunc = nil): string;
 
     procedure ForEach(const AProc: TProc<TKRecord>);
+
+    /// <summary>
+    ///  Sorts the records by calling the specified compare function.
+    /// </summary>
+    procedure Sort(const ACompareFunc: TKRecordCompareFunc); reintroduce;
 
     procedure MarkAsClean;
   end;
@@ -336,55 +363,74 @@ type
     /// </summary>
     function AppendRecord(const AValues: TEFNode): TKRecord;
 
-    /// <summary>Removes the record from the store, if present.</summary>
-    /// <remarks>Calling this method will NOT trigger any database operation.
-    /// It is meant to cancel pending changes.</remarks>
+    /// <summary>
+    ///  Removes the record from the store, if present.
+    /// </summary>
+    /// <remarks>
+    ///  Calling this method will NOT trigger any database operation.
+    ///  It is meant to cancel pending changes.
+    /// </remarks>
     /// <seealso cref="TKRecord.MarkAsDeleted"></seealso>
     procedure RemoveRecord(const ARecord: TKRecord);
 
     function GetAsJSON(const AForDisplay: Boolean; const AFrom: Integer = 0;
-      const AFor: Integer = 0): string;
+      const AFor: Integer = 0; const AFieldFilterFunc: TKFieldFilterFunc = nil): string;
 
     function GetAsXML(const AForDisplay: Boolean; const AFrom: Integer = 0;
       const AFor: Integer = 0): string;
 
     function ChangesPending: Boolean;
 
-    /// <summary>Iterates all records in the store (regardless of state)
-    /// calling APredicate for each record and then calling AProc when
-    /// the predicate returns True. Use the optional predicate to filter
-    /// records before passing them to AProc.</summary>
+    /// <summary>
+    ///  Iterates all records in the store (regardless of state)
+    ///  calling APredicate for each record and then calling AProc when all
+    ///  predicates return True. Use the optional predicate to filter
+    ///  records before passing them to AProc.
+    /// </summary>
     /// <param name="AProc">A procedure that receives a TKRecord.</param>
-    /// <param name="AProc">A function that receives a TKRecord and
-    /// returns a Boolean indicating whether to include the record in the
+    /// <param name="APredicates">An array of functions that receive a TKRecord
+    /// and return a Boolean indicating whether to include the record in the
     /// enumeration or not. You can pass predefined predicates such as All
     /// and NotDeleted or code your own.</param>
     procedure Iterate(const AProc: TProc<TKRecord>;
       const APredicates: array of TPredicate<TKRecord>);
 
-    /// <summary>Pass this as a predicate to one of the predicate-accepting
-    /// methodse to specify that you want to include all records (including
-    /// those marked as deleted).</summary>
+    /// <summary>
+    ///  Pass this as a predicate to one of the predicate-accepting
+    ///  methods to specify that you want to include all records (including
+    ///  those marked as deleted).
+    /// </summary>
     function All: TPredicate<TKRecord>;
 
-    /// <summary>Pass this as a predicate to one of the predicate-accepting
-    /// methodse to specify that you want to include all records except
-    /// those marked as deleted.</summary>
+    /// <summary>
+    ///  Pass this as a predicate to one of the predicate-accepting
+    ///  methods to specify that you want to include all records except
+    ///  those marked as deleted.
+    /// </summary>
     function ExcludeDeleted: TPredicate<TKRecord>;
 
-    /// <summary>Returns the number of records in which all the specified
-    /// predicates hold (that is, all return True for a given record).</summary>
+    /// <summary>
+    ///  Returns the number of records in which all the specified
+    ///  predicates hold (that is, all return True for a given record).
+    /// </summary>
     function Count(const APredicates: array of TPredicate<TKRecord>): Integer; overload;
 
-    /// <summary>Returns the number of non-deleted records in which the specified
-    /// field has the specified value. This is a special case of the more generic
-    /// predicate-based Count method.</summary>
+    /// <summary>
+    ///  Returns the number of non-deleted records in which the specified
+    ///  field has the specified value. This is a special case of the more generic
+    ///  predicate-based Count method.
+    /// </summary>
     function Count(const AFieldName: string; const AValue: Variant): Integer; overload;
 
     function Max(const AFieldName: string): Variant;
     function Min(const AFieldName: string): Variant;
     function Sum(const AFieldName: string): Variant;
     function Avg(const AFieldName: string): Variant;
+
+    /// <summary>
+    ///  Sorts the store records by calling the specified compare function.
+    /// </summary>
+    procedure Sort(const ACompareFunc: TKRecordCompareFunc);
 
     /// <summary>
     ///  Locates and returns a record from the key values stored in AKey.
@@ -588,9 +634,9 @@ begin
 end;
 
 function TKStore.GetAsJSON(const AForDisplay: Boolean; const AFrom: Integer;
-  const AFor: Integer): string;
+  const AFor: Integer; const AFieldFilterFunc: TKFieldFilterFunc): string;
 begin
-  Result := Records.GetAsJSON(AForDisplay, AFrom, AFor);
+  Result := Records.GetAsJSON(AForDisplay, AFrom, AFor, AFieldFilterFunc);
 end;
 
 function TKStore.GetAsXML(const AForDisplay: Boolean; const AFrom: Integer;
@@ -710,6 +756,11 @@ begin
   Records.Key := AValue;
 end;
 
+procedure TKStore.Sort(const ACompareFunc: TKRecordCompareFunc);
+begin
+  Records.Sort(ACompareFunc);
+end;
+
 function TKStore.Sum(const AFieldName: string): Variant;
 var
   LSum: Variant;
@@ -823,7 +874,8 @@ begin
 end;
 
 function TKRecords.GetAsJSON(const AForDisplay: Boolean;
-  const AFrom: Integer; const AFor: Integer): string;
+  const AFrom: Integer; const AFor: Integer;
+  const AFieldFilterFunc: TKFieldFilterFunc): string;
 var
   LResult: string;
 begin
@@ -832,15 +884,15 @@ begin
     procedure(ARecord: TKRecord)
     begin
       if LResult = '' then
-        LResult := ARecord.GetAsJSON(AForDisplay)
+        LResult := ARecord.GetAsJSON(AForDisplay, AFieldFilterFunc)
       else
-        LResult := LResult + ',' + ARecord.GetAsJSON(AForDisplay);
+        LResult := LResult + ',' + ARecord.GetAsJSON(AForDisplay, AFieldFilterFunc);
     end);
   Result := '[' + LResult + ']';
 end;
 
 function TKRecords.GetAsXML(const AForDisplay: Boolean;
-  const AFrom, AFor: Integer): string;
+  const AFrom, AFor: Integer; const AFieldFilterFunc: TKFieldFilterFunc): string;
 var
   LTagName: string;
   LResult: string;
@@ -850,9 +902,9 @@ begin
     procedure(ARecord: TKRecord)
     begin
       if LResult = '' then
-        LResult := ARecord.GetAsXML(AForDisplay)
+        LResult := ARecord.GetAsXML(AForDisplay, AFieldFilterFunc)
       else
-        LResult := LResult + ARecord.GetAsXML(AForDisplay);
+        LResult := LResult + ARecord.GetAsXML(AForDisplay, AFieldFilterFunc);
     end);
   LTagName := GetXMLTagName;
   Result := Format(XMLTagFormat,[LTagName, LResult, LTagName]);
@@ -912,6 +964,16 @@ end;
 procedure TKRecords.SetKey(const AValue: TKKey);
 begin
   FKey.Assign(AValue);
+end;
+
+procedure TKRecords.Sort(const ACompareFunc: TKRecordCompareFunc);
+begin
+  inherited Sort(
+    function (ALeft, ARight: TEFNode): Integer
+    begin
+      Result := ACompareFunc(TKRecord(ALeft), TKRecord(ARight));
+    end
+  );
 end;
 
 function TKRecords.GetRecordByIndex(I: Integer): TKRecord;
@@ -1007,7 +1069,7 @@ end;
 procedure TKRecord.AfterConstruction;
 begin
   inherited;
-  FState := rsNew;
+  SetState(rsNew);
 end;
 
 procedure TKRecord.Backup;
@@ -1075,7 +1137,7 @@ begin
   end;
 end;
 
-function TKRecord.GetAsJSON(const AForDisplay: Boolean): string;
+function TKRecord.GetAsJSON(const AForDisplay: Boolean; const AFieldFilterFunc: TKFieldFilterFunc): string;
 var
   I: Integer;
   LJSON: string;
@@ -1083,19 +1145,22 @@ begin
   Result := '';
   for I := 0 to FieldCount - 1 do
   begin
-    LJSON := Fields[I].GetAsJSON(AForDisplay);
-    if LJSON <> '' then
+    if not Assigned(AFieldFilterFunc) or AFieldFilterFunc(Fields[I]) then
     begin
-      if Result <> '' then
-        Result := Result + ',' + LJSON
-      else
-        Result := LJSON;
+      LJSON := Fields[I].GetAsJSON(AForDisplay);
+      if LJSON <> '' then
+      begin
+        if Result <> '' then
+          Result := Result + ',' + LJSON
+        else
+          Result := LJSON;
+      end;
     end;
   end;
   Result := '{' + Result + '}';
 end;
 
-function TKRecord.GetAsXML(const AForDisplay: Boolean): string;
+function TKRecord.GetAsXML(const AForDisplay: Boolean; const AFieldFilterFunc: TKFieldFilterFunc): string;
 var
   I: Integer;
   LXML, LTagName: string;
@@ -1104,11 +1169,14 @@ begin
   Result := '';
   for I := 0 to FieldCount - 1 do
   begin
-    LXML := Fields[I].GetAsXML(AForDisplay);
-    if LXML <> '' then
-      Result := Result + sLineBreak + LXML
-    else
-      Result := LXML;
+    if not Assigned(AFieldFilterFunc) or not AFieldFilterFunc(Fields[I]) then
+    begin
+      LXML := Fields[I].GetAsXML(AForDisplay);
+      if LXML <> '' then
+        Result := Result + sLineBreak + LXML
+      else
+        Result := LXML;
+    end;
   end;
   for I := 0 to DetailStoreCount -1 do
   begin
@@ -1199,28 +1267,37 @@ begin
   Result := Name;
 end;
 
+procedure TKRecord.HandleSetToNullInstructions;
+begin
+  EnumFields(
+    function (AField: TKField): Boolean
+    begin
+      if AField.GetBoolean('Sys/SetToNull') then
+        AField.SetToNull;
+      Result := True;
+    end
+  );
+end;
+
 procedure TKRecord.MarkAsClean;
 begin
-  FState := rsClean;
+  SetState(rsClean);
 end;
 
 procedure TKRecord.MarkAsDeleted;
 begin
-  if FState = rsNew then
-    FState := rsClean
-  else
-    FState := rsDeleted;
+  SetState(rsDeleted);
 end;
 
 procedure TKRecord.MarkAsModified;
 begin
   if not (FState in [rsNew, rsDeleted]) then
-    FState := rsDirty;
+    SetState(rsDirty);
 end;
 
 procedure TKRecord.MarkAsNew;
 begin
-  FState := rsNew;
+  SetState(rsNew);
 end;
 
 function TKRecord.MatchesValues(const AValues: TEFNode): Boolean;
@@ -1280,7 +1357,7 @@ begin
       end;
       // Still not found - must be a reference.
     end;
-    FState := rsClean;
+    SetState(rsClean);
   except
     Restore;
     raise;
@@ -1304,7 +1381,7 @@ begin
     end;
     InternalAfterReadFromNode;
     if FState = rsClean then
-      FState := rsDirty;
+      SetState(rsDirty);
   except
     Store.DisableChangeNotifications;
     try
@@ -1325,6 +1402,17 @@ begin
   Assert(Assigned(FBackup));
 
   Assign(FBackup);
+end;
+
+procedure TKRecord.RestorePreviousState;
+begin
+  SetState(FPreviousState);
+end;
+
+procedure TKRecord.SetState(const AValue: TKRecordState);
+begin
+  FPreviousState := FState;
+  FState := AValue;
 end;
 
 procedure TKRecord.SetTransientProperty(const ASubjectType, ASubjectName, APropertyName: string; const AValue: Variant);
