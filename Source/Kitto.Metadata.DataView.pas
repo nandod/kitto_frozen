@@ -380,7 +380,8 @@ type
     ///   If AFrom or ATo are 0, the method calls <see cref="Load" />.
     ///  </para>
     /// </remarks>
-    function Load(const AFilter, ASort: string; const AFrom: Integer = 0; const AFor: Integer = 0;
+    function Load(const AFilter: string = ''; const ASort: string = '';
+      const AFrom: Integer = 0; const AFor: Integer = 0;
       const AForEachRecord: TProc<TKVIewTableRecord> = nil): Integer; overload;
 
     /// <summary>
@@ -502,8 +503,8 @@ type
     function AddDetailStore(const AStore: TKViewTableStore): TKViewTableStore;
     procedure Refresh(const AStrict: Boolean = False);
     procedure SetDetailFieldValues(const AMasterRecord: TKViewTableRecord);
-    function FindDetailStoreByModelName(const AModelName: string): TKViewTableStore;
-    function GetDetailStoreByModelName(const AModelName: string): TKViewTableStore;
+    function FindDetailStoreByModelName(const AModelName: string; const AForceLoad: Boolean = False): TKViewTableStore;
+    function GetDetailStoreByModelName(const AModelName: string; const AForceLoad: Boolean = False): TKViewTableStore;
     procedure HandleDeleteFileInstructions;
 
     procedure ApplyNewRecordRules;
@@ -669,6 +670,7 @@ type
     property DetailTableCount: Integer read GetDetailTableCount;
     property DetailTables[I: Integer]: TKViewTable read GetDetailTable;
     function DetailTableByName(const AName: string): TKViewTable;
+    function GetDetailTableIndex(const AViewTable: TKViewTable): Integer;
     procedure AddDetailTable(const AViewTable: TKViewTable);
 
     property View: TKDataView read GetView;
@@ -726,8 +728,6 @@ type
     property DatabaseName: string read GetDatabaseName;
 
     function GetFilterByFields(APredicate: TFunc<TKFilterByViewField, Boolean>): TArray<TKFilterByViewField>;
-
-    function GetFilteredByFields(const AViewField: TKViewField): TKViewFieldArray;
 
     /// <summary>
     ///  True if the underlying data store is a large one. Set this to True at the
@@ -1058,6 +1058,11 @@ begin
   Result := GetDetailTables.GetChildCount<TKViewTable>;
 end;
 
+function TKViewTable.GetDetailTableIndex(const AViewTable: TKViewTable): Integer;
+begin
+  Result := GetDetailTables.GetChildIndex<TKViewTable>(AViewTable);
+end;
+
 function TKViewTable.GetDetailTables: TKViewTables;
 begin
   Result := GetNode('DetailTables', True) as TKViewTables;
@@ -1179,11 +1184,6 @@ begin
       end;
     end;
   end;
-end;
-
-function TKViewTable.GetFilteredByFields(const AViewField: TKViewField): TKViewFieldArray;
-begin
-
 end;
 
 function TKViewTable.GetImageName: string;
@@ -2543,7 +2543,7 @@ begin
   EnsureDetailStores;
   for I := 0 to DetailStoreCount - 1 do
   begin
-    DetailStores[I].Load('', '');
+    DetailStores[I].Load;
     for LRecordIndex := 0 to DetailStores[I].RecordCount - 1 do
       DetailStores[I].Records[LRecordIndex].LoadDetailStores;
   end;
@@ -2665,27 +2665,31 @@ begin
         FReferenceViewFieldBeingChanged := nil;
       end;
     end;
-    // Clear filtered-by fields.
-    LFilteredByFields := LViewField.Table.GetFilterByFields(
-      function (AFilterByViewField: TKFilterByViewField): Boolean
-      begin
-        Result := AFilterByViewField.SourceField = LViewField;
-        if Result then
+    // Clear filtered-by fields only when changing the view field itself (not
+    // any underlying real fields).
+    if LField.FieldName = LViewField.AliasedName then
+    begin
+      LFilteredByFields := LViewField.Table.GetFilterByFields(
+        function (AFilterByViewField: TKFilterByViewField): Boolean
         begin
-          EnumChildren(
-            // Select all destination fields...
-            function (const ANode: TEFNode): Boolean
-            begin
-              Result := TKVIewTableField(ANode).ViewField = AFilterByViewField.DestinationField;
-            end,
-            // ...and clear them, forcing change event since we need it
-            // to update the UI.
-            procedure (const ANode: TEFNode)
-            begin
-              ANode.SetToNull(True);
-            end);
-        end;
-      end);
+          Result := AFilterByViewField.SourceField = LViewField;
+          if Result then
+          begin
+            EnumChildren(
+              // Select all destination fields...
+              function (const ANode: TEFNode): Boolean
+              begin
+                Result := TKVIewTableField(ANode).ViewField = AFilterByViewField.DestinationField;
+              end,
+              // ...and clear them, forcing change event since we need it
+              // to update the UI.
+              procedure (const ANode: TEFNode)
+              begin
+                ANode.SetToNull(True);
+              end);
+          end;
+        end);
+    end;
   end;
   inherited;
 end;
@@ -2860,7 +2864,8 @@ begin
     Result := LViewField.AliasedDBName;
 end;
 
-function TKViewTableRecord.FindDetailStoreByModelName(const AModelName: string): TKViewTableStore;
+function TKViewTableRecord.FindDetailStoreByModelName(const AModelName: string;
+  const AForceLoad: Boolean): TKViewTableStore;
 var
   I: Integer;
   LDetailTableStore: TKViewTableStore;
@@ -2872,14 +2877,17 @@ begin
     if SameText(LDetailTableStore.ViewTable.ModelName, AModelName) then
     begin
       Result := LDetailTableStore;
-      break;
+      if (Result.RecordCount = 0) or AForceLoad then
+        Result.Load;
+      Break;
     end;
   end;
 end;
 
-function TKViewTableRecord.GetDetailStoreByModelName(const AModelName: string): TKViewTableStore;
+function TKViewTableRecord.GetDetailStoreByModelName(const AModelName: string;
+  const AForceLoad: Boolean): TKViewTableStore;
 begin
-  Result := FindDetailStoreByModelName(AModelName);
+  Result := FindDetailStoreByModelName(AModelName, AForceLoad);
   if not Assigned(Result) then
     raise EKError.CreateFmt(_('DetailStore %s not found.'), [AModelName]);
 end;

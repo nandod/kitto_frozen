@@ -364,9 +364,6 @@ var
   LFormControllerType: string;
   LFormControllerNode: TEFNode;
   LFormController: IKExtController;
-  LWidth: Integer;
-  LHeight: Integer;
-  LFullScreen: Boolean;
 begin
   Assert((AEditMode = emNewrecord) or Assigned(ARecord));
   Assert(ViewTable <> nil);
@@ -404,24 +401,8 @@ begin
   LFormController.Config.SetObject('Sys/ViewTable', ViewTable);
   LFormController.Config.SetObject('Sys/HostWindow', FEditHostWindow);
   LFormController.Config.SetObject('Sys/CallingController', Self);
-
-  LWidth := ViewTable.GetInteger('Controller/PopupWindow/Width');
-  LHeight := ViewTable.GetInteger('Controller/PopupWindow/Height');
-  LFullScreen := ViewTable.GetBoolean('Controller/PopupWindow/FullScreen', Session.IsMobileBrowser);
-
-  if LFullScreen then
-  begin
-    FEditHostWindow.Maximized := True;
-    FEditHostWindow.Border := not FEditHostWindow.Maximized;
-  end
-  else if (LWidth > 0) and (LHeight > 0) then
-  begin
-    FEditHostWindow.Width := LWidth;
-    FEditHostWindow.Height := LHeight;
-    LFormController.Config.SetBoolean('Sys/HostWindow/AutoSize', False);
-  end
-  else
-    LFormController.Config.SetBoolean('Sys/HostWindow/AutoSize', True);
+  LFormController.Config.SetBoolean('Sys/HostWindow/AutoSize',
+    FEditHostWindow.SetSizeFromTree(ViewTable, 'Controller/PopupWindow/'));
 
   case AEditMode of
     emNewRecord : LFormController.Config.SetString('Sys/Operation', 'Add');
@@ -726,6 +707,8 @@ end;
 function TKExtDataPanelController.GetExplicitDefaultAction: string;
 begin
   Result := ViewTable.GetExpandedString('Controller/DefaultAction');
+  if (Result <> '') and not IsActionAllowed(Result) then
+    Result := '';
 end;
 
 function TKExtDataPanelController.GetFilterExpression: string;
@@ -756,15 +739,23 @@ begin
 end;
 
 function TKExtDataPanelController.GetImplicitDefaultAction: string;
+var
+  LConfigDefaultAction: string;
 begin
   if IsLookupMode then
     Result := 'LookupConfirm'
-  else if IsActionAllowed('View') then
-    Result := 'View'
-  else if IsActionAllowed('Edit') then
-    Result := 'Edit'
   else
-    Result := '';
+  begin
+    LConfigDefaultAction := Session.Config.Config.GetString('Defaults/Grid/DefaultAction');
+    if (LConfigDefaultAction <> '') and IsActionAllowed(LConfigDefaultAction) then
+      Result := LConfigDefaultAction
+    else if IsActionAllowed('View') then
+      Result := 'View'
+    else if IsActionAllowed('Edit') then
+      Result := 'Edit'
+    else
+      Result := '';
+  end;
 end;
 
 function TKExtDataPanelController.GetIsPaged: Boolean;

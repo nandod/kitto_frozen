@@ -27,7 +27,7 @@ uses
 
 type
   /// <summary>
-  ///   Builds SQL select statements on request.
+  ///  Builds SQL select statements on request.
   /// </summary>
   TKSQLBuilder = class
   private
@@ -278,8 +278,7 @@ begin
   ADBQuery.Params.BeginUpdate;
   try
     ADBQuery.Params.Clear;
-    LCommandText :=
-      'select ' +  FSelectTerms +
+    LCommandText := 'select ' +  ExpandQualification(FSelectTerms, AModel.DBTableName) +
       ' from ' + AModel.DBTableName + ' where ' + ExpandQualification(GetModelKeyWhereClause(AModel, ADBQuery), AModel.DBTableName);
     ADBQuery.CommandText := TEFMacroExpansionEngine.Instance.Expand(LCommandText);
   finally

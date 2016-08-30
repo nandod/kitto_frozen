@@ -72,6 +72,13 @@ type
     function IsSynchronous: Boolean;
     property Config: TEFNode read GetConfig;
 
+    /// <summary>
+    ///  Reads the Width, Height, FullScreen properties under <APath> from ATree
+    ///  and sets its size accordingly. Returns True if auto-sizing is in effect
+    ///  (no explicit width and height) and False otherwise.
+    /// </summry>
+    function SetSizeFromTree(const ATree: TEFTree; const APath: string): Boolean;
+
     property View: TKView read GetView write SetView;
     procedure Display;
   published
@@ -577,6 +584,31 @@ begin
   FContainer := AValue;
 end;
 
+function TKExtWindowControllerBase.SetSizeFromTree(const ATree: TEFTree; const APath: string): Boolean;
+var
+  LWidth: Integer;
+  LHeight: Integer;
+  LFullScreen: Boolean;
+begin
+  LWidth := ATree.GetInteger(APath + 'Width');
+  LHeight := ATree.GetInteger(APath + 'Height');
+  LFullScreen := ATree.GetBoolean(APath + 'FullScreen', Session.IsMobileBrowser);
+
+  Result := False;
+  if LFullScreen then
+  begin
+    Maximized := True;
+    Border := not Maximized;
+  end
+  else if (LWidth > 0) and (LHeight > 0) then
+  begin
+    Width := LWidth;
+    Height := LHeight;
+  end
+  else
+    Result := True;
+end;
+
 procedure TKExtWindowControllerBase.SetView(const AValue: TKView);
 begin
   FView := AValue;
@@ -843,8 +875,8 @@ end;
 procedure TKExtModalWindow.InitDefaults;
 begin
   inherited;
-  Width := DEFAULT_WINDOW_WIDTH;
-  Height := DEFAULT_WINDOW_HEIGHT;
+  Width := Session.Config.Config.GetInteger('Defaults/Window/Width', DEFAULT_WINDOW_WIDTH);
+  Height := Session.Config.Config.GetInteger('Defaults/Window/Height', DEFAULT_WINDOW_HEIGHT);
   Closable := False;
   Modal := True;
 end;

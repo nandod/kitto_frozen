@@ -76,7 +76,7 @@ type
     function GetDataType: TEFDataType; override;
     function GetDecimalPrecision: Integer; virtual;
   public
-    procedure Assign(const ASource: TEFTree); override;
+    procedure Assign(const ASource: TEFTree; const AProc: TEFTree.TAssignNodeProc = nil); override;
     property HeaderField: TKHeaderField read FHeaderField write FHeaderField;
     procedure MarkAsUnmodified;
     procedure SetToNull(const AForceChangeNotification: Boolean = False); override;
@@ -116,11 +116,11 @@ type
     function GetFieldCount: Integer;
     function GetDetailsStore(I: Integer): TKStore;
     function GetDetailStoreCount: Integer;
-    procedure EnsureDetailStores;
     function GetStore: TKStore;
     function GetIsDeleted: Boolean;
     function GetIsNew: Boolean;
     procedure SetState(const AValue: TKRecordState);
+    function GetDetailStores: TObjectList<TKStore>;
   strict protected
     function GetChildClass(const AName: string): TEFNodeClass; override;
 
@@ -1020,12 +1020,6 @@ end;
 
 { TKRecord }
 
-procedure TKRecord.EnsureDetailStores;
-begin
-  if not Assigned(FDetailStores) then
-    FDetailStores := TObjectList<TKStore>.Create;
-end;
-
 procedure TKRecord.EnumFields(const AProc: TFunc<TKField, Boolean>);
 var
   I: Integer;
@@ -1055,8 +1049,7 @@ end;
 
 function TKRecord.AddDetailStore(const AStore: TKStore): TKStore;
 begin
-  EnsureDetailStores;
-  FDetailStores.Add(AStore);
+  GetDetailStores.Add(AStore);
   Result := AStore;
 end;
 
@@ -1205,6 +1198,13 @@ begin
     Result := FDetailStores.Count
   else
     Result := 0;
+end;
+
+function TKRecord.GetDetailStores: TObjectList<TKStore>;
+begin
+  if not Assigned(FDetailStores) then
+    FDetailStores := TObjectList<TKStore>.Create;
+  Result := FDetailStores;
 end;
 
 function TKRecord.GetField(I: Integer): TKField;
@@ -1433,7 +1433,7 @@ begin
   Result := FieldName;
 end;
 
-procedure TKField.Assign(const ASource: TEFTree);
+procedure TKField.Assign(const ASource: TEFTree; const AProc: TEFTree.TAssignNodeProc);
 begin
   if ASource is TKField then
     FHeaderField := TKField(ASource).HeaderField;

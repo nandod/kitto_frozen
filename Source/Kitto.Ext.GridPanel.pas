@@ -27,6 +27,9 @@ uses
   Kitto.Metadata.Views, Kitto.Metadata.DataView, Kitto.Store, Kitto.Types,
   Kitto.Ext.Base, Kitto.Ext.Controller, Kitto.Ext.DataPanelLeaf, Kitto.Ext.Editors;
 
+const
+  DEFAULT_PAGE_RECORD_COUNT = 100;
+
 type
   TKExtGridPanel = class(TKExtDataPanelLeafController)
   strict private
@@ -70,7 +73,6 @@ type
     function IsActionSupported(const AActionName: string): Boolean; override;
     procedure AddUsedViewFields; override;
   public
-    const DEFAULT_PAGE_RECORD_COUNT = 100;
     procedure UpdateObserver(const ASubject: IEFSubject; const AContext: string = ''); override;
     procedure Activate; override;
   published
@@ -127,7 +129,7 @@ function TKExtGridPanel.GetIsPaged: Boolean;
 begin
   Assert(Assigned(ViewTable));
 
-  Result := ViewTable.GetBoolean('Controller/PagingTools', ViewTable.IsLarge);
+  Result := not ViewTable.IsDetail and ViewTable.GetBoolean('Controller/PagingTools', ViewTable.IsLarge);
 end;
 
 procedure TKExtGridPanel.AfterCreateTopToolbar;
@@ -341,6 +343,7 @@ var
       LColors: TEFNode;
       LAllowedValues: TEFPairs;
       LJSCode: string;
+      LColorValueFieldName: string;
     begin
       Result := False;
 
@@ -397,11 +400,19 @@ var
           LTriples[I].Value3 := AViewField.DisplayTemplate;
         end;
         // Pass array to the client-side renderer.
-        AColumn.RendererExtFunction := AColumn.JSFunction('value, metaData',
-          Format(
-            'metaData.css += getColorStyleRuleForValue(value, [%s]);' +
-            'return %s ? null : formatWithDisplayTemplate(value, ''%s'');',
-            [PairsToJSON(LColorPairs), IfThen(AViewField.BlankValue, 'true', 'false'), AViewField.DisplayTemplate]));
+        LColorValueFieldName := AViewField.GetExpandedString('ColorValueFieldName');
+        if LColorValueFieldName <> '' then
+          AColumn.RendererExtFunction := AColumn.JSFunction('value, metaData, record',
+            Format(
+              'metaData.css += getColorStyleRuleForRecordField(record, ''%s'', [%s]);' +
+              'return %s ? null : formatWithDisplayTemplate(value, ''%s'');',
+              [LColorValueFieldName, PairsToJSON(LColorPairs), IfThen(AViewField.BlankValue, 'true', 'false'), AViewField.DisplayTemplate]))
+        else
+          AColumn.RendererExtFunction := AColumn.JSFunction('value, metaData',
+            Format(
+              'metaData.css += getColorStyleRuleForValue(value, [%s]);' +
+              'return %s ? null : formatWithDisplayTemplate(value, ''%s'');',
+              [PairsToJSON(LColorPairs), IfThen(AViewField.BlankValue, 'true', 'false'), AViewField.DisplayTemplate]));
         Result := True;
         Exit;
       end;
@@ -720,7 +731,8 @@ begin
   // By default show paging toolbar for large models.
   if GetIsPaged then
   begin
-    FPageRecordCount := LViewTable.GetInteger('Controller/PageRecordCount', DEFAULT_PAGE_RECORD_COUNT);
+    FPageRecordCount := LViewTable.GetInteger('Controller/PageRecordCount',
+      Session.Config.Config.GetInteger('Defaults/Grid/PageRecordCount', DEFAULT_PAGE_RECORD_COUNT));
     FEditorGridPanel.Bbar := CreatePagingToolbar;
   end;
 
